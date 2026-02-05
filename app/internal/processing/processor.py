@@ -283,23 +283,24 @@ async def reorganize_existing_book(
         )
 
     audio_files = []
-    for f in os.listdir(current_path):
-        if any(
-            f.lower().endswith(ext)
-            for ext in [
-                ".m4b",
-                ".mp3",
-                ".m4a",
-                ".flac",
-                ".wav",
-                ".ogg",
-                ".opus",
-                ".aac",
-                ".wma",
-            ]
-        ):
-            audio_files.append(os.path.join(current_path, f))
-    natural_sort(audio_files)
+    for root, _dirs, files in os.walk(current_path):
+        for f in files:
+            if any(
+                f.lower().endswith(ext)
+                for ext in [
+                    ".m4b",
+                    ".mp3",
+                    ".m4a",
+                    ".flac",
+                    ".wav",
+                    ".ogg",
+                    ".opus",
+                    ".aac",
+                    ".wma",
+                ]
+            ):
+                audio_files.append(os.path.join(root, f))
+    audio_files = natural_sort(audio_files) or audio_files
     if not audio_files:
         return
 
@@ -317,19 +318,29 @@ async def reorganize_existing_book(
             shutil.move(s_path, d_path)
         new_audio_paths.append(d_path)
 
-    for f in os.listdir(current_path):
-        s_path = os.path.join(current_path, f)
-        if s_path in new_audio_paths or os.path.isdir(s_path):
-            continue
-        d_path = os.path.join(dest_path, f)
-        if os.path.abspath(s_path) != os.path.abspath(d_path):
-            shutil.move(s_path, d_path)
+    moved = set(new_audio_paths)
+    for root, dirs, files in os.walk(current_path):
+        for f in files:
+            s_path = os.path.join(root, f)
+            if s_path in moved:
+                continue
+            rel_dir = os.path.relpath(root, current_path)
+            d_dir = os.path.join(dest_path, rel_dir) if rel_dir != "." else dest_path
+            os.makedirs(d_dir, exist_ok=True)
+            d_path = os.path.join(d_dir, f)
+            if os.path.abspath(s_path) != os.path.abspath(d_path):
+                shutil.move(s_path, d_path)
+            moved.add(s_path)
 
-    try:
-        if current_path != dest_path and not os.listdir(current_path):
-            os.removedirs(current_path)
-    except Exception:
-        pass
+    # Clean up empty directories left behind
+    for root, dirs, files in list(os.walk(current_path, topdown=False)):
+        if os.path.abspath(root) == os.path.abspath(dest_path):
+            continue
+        if not dirs and not files:
+            try:
+                os.rmdir(root)
+            except Exception:
+                pass
 
     await generate_abs_metadata(book, dest_path)
     await generate_opf_metadata(session, book, dest_path)

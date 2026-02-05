@@ -622,7 +622,13 @@ class LibraryScanner:
         search_queries = self._dedupe_candidates(search_queries)[:6]
 
         best_match, best_score, seen_asins = None, 0.0, set()
-        search_region = language if language else None
+        # Prefer the user's default region; only override when language is explicit and differs.
+        from app.internal.book_search import audible_regions, get_region_from_settings
+
+        default_region = get_region_from_settings()
+        search_region = default_region if default_region in audible_regions else "us"
+        if language and language in audible_regions and language != search_region:
+            search_region = language
 
         for q in search_queries:
             if not q or len(q) < 3:
