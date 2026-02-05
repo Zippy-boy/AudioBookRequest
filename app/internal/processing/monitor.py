@@ -164,7 +164,21 @@ async def check_qbittorrent(session: Session):
                         )
                         session.commit()  # Commit to make status visible
 
-                        await process_completed_download(session, req, download_path)
+                        tags = current_torrent.get("tags", "") or ""
+                        collection_flag = "collection" in tags.lower()
+                        collection_label = None
+                        label_match = re.search(r"collection:([^,;]+)", tags, re.IGNORECASE)
+                        if label_match:
+                            collection_label = label_match.group(1).strip()
+                            collection_flag = True
+
+                        await process_completed_download(
+                            session,
+                            req,
+                            download_path,
+                            collection=collection_flag,
+                            collection_label=collection_label,
+                        )
                         await client.add_torrent_tags(
                             current_torrent.get("hash"), ["processed"]
                         )

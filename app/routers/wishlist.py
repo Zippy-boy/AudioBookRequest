@@ -214,6 +214,12 @@ async def active_downloads(
         tags = t.get("tags", "")
         match = re.search(r"asin:([A-Z0-9]{10})", tags)
         asin = match.group(1) if match else None
+        collection_flag = "collection" in tags.lower()
+        collection_label = None
+        label_match = re.search(r"collection:([^,;]+)", tags, re.IGNORECASE)
+        if label_match:
+            collection_label = label_match.group(1).strip()
+            collection_flag = True
 
         book = books.get(asin) if asin else None
         req = requests.get(asin) if asin else None
@@ -273,6 +279,8 @@ async def active_downloads(
                 "stage_label": stage_label,
                 "error_reason": error_reason,
                 "logs": logs,
+                "collection": collection_flag,
+                "collection_label": collection_label,
             }
         )
 
@@ -311,6 +319,8 @@ async def active_downloads(
                         None if user.is_admin() else user.username,
                     )
                 ],
+                "collection": False,
+                "collection_label": None,
             }
         )
 
@@ -708,7 +718,7 @@ async def review_metadata_submit(
             commit=True,
         )
 
-        await process_completed_download(session, req, download_path)
+        await process_completed_download(session, req, download_path, collection=False)
         await client.add_torrent_tags(matching_torrent.get("hash"), ["processed"])
         await client.delete_torrent(matching_torrent.get("hash"), delete_files=False)
 
@@ -792,7 +802,7 @@ async def reprocess_book(
         raise ToastException("Torrent found but content path is missing.", "error")
 
     try:
-        await process_completed_download(session, asin, download_path)
+        await process_completed_download(session, asin, download_path, collection=False)
         return template_response(
             "scripts/toast.html",
             None,

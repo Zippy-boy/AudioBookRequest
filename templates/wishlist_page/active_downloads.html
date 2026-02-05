@@ -22,6 +22,14 @@
       <!-- Title -->
       <div>
         <h3 class="font-black text-[11px] line-clamp-1 leading-tight" title="{{ dl.title }}">{{ dl.title }}</h3>
+        {% if dl.collection %}
+        <div class="flex items-center gap-2 mt-1">
+          <span class="badge badge-xs bg-warning/10 text-warning border-warning/30 uppercase text-[8px] tracking-widest">Collection</span>
+          {% if dl.collection_label %}
+          <span class="text-[10px] font-semibold opacity-60 line-clamp-1" title="{{ dl.collection_label }}">{{ dl.collection_label }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
 
       <!-- Progress Section -->

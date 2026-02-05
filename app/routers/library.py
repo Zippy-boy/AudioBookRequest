@@ -1248,6 +1248,7 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
             req,
             item.source_path,
             delete_source=True if is_reconciliation else move_files,
+            collection=False,
         )
 
         item.status = ImportItemStatus.imported
@@ -1397,6 +1398,7 @@ async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: s
                         req,
                         item.source_path,
                         delete_source=True if is_reconciliation else move_files,
+                        collection=False,
                     )
 
                     item.status = ImportItemStatus.imported

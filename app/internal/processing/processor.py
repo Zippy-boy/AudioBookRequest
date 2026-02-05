@@ -2,7 +2,13 @@ import os
 import shutil
 from typing import Optional
 from sqlmodel import Session
-from app.internal.models import Audiobook, AudiobookRequest
+from app.internal.models import (
+    Audiobook,
+    AudiobookRequest,
+    LibraryImportSession,
+    ImportSessionStatus,
+    RequestLogLevel,
+)
 from app.internal.request_logs import log_request_event
 from app.internal.media_management.config import media_management_config
 from app.internal.library.service import (
@@ -12,6 +18,8 @@ from app.internal.library.service import (
 from app.util.log import logger
 from app.util.sort import natural_sort
 from app.internal.metadata import generate_abs_metadata, generate_opf_metadata
+from app.internal.library.scanner import LibraryScanner
+import aiohttp
 
 
 def smart_copy(
@@ -48,6 +56,8 @@ async def process_completed_download(
     book_request: AudiobookRequest,
     download_path: str,
     delete_source: bool = False,
+    collection: bool = False,
+    collection_label: str | None = None,
 ):
     """
     Takes a completed download, organizes it into the library, and generates metadata.
@@ -60,6 +70,57 @@ async def process_completed_download(
     lib_root = media_management_config.get_library_path(session)
     if not lib_root:
         logger.error("Processor: Library path not configured")
+        return
+
+    # If this was a collection torrent, trigger an import scan of the download folder
+    if collection:
+        log_request_event(
+            session,
+            book_request.asin,
+            book_request.user_username,
+            f"Collection download completed. Scanning folder for books ({collection_label or 'collection'})",
+            commit=False,
+        )
+        session.commit()
+
+        import_session = LibraryImportSession(
+            root_path=download_path, status=ImportSessionStatus.scanning
+        )
+        session.add(import_session)
+        session.commit()
+        session.refresh(import_session)
+
+        try:
+            async with aiohttp.ClientSession() as client_session:
+                scanner = LibraryScanner(import_session.id)
+                await scanner.scan(client_session)
+            # scanner sets status to review_ready
+            session.refresh(import_session)
+            log_request_event(
+                session,
+                book_request.asin,
+                book_request.user_username,
+                "Collection scan completed. Review/import items in Library > Import.",
+                commit=False,
+            )
+        except Exception as e:
+            import_session.status = ImportSessionStatus.failed
+            session.add(import_session)
+            session.commit()
+            logger.error("Processor: Collection scan failed", error=str(e))
+            log_request_event(
+                session,
+                book_request.asin,
+                book_request.user_username,
+                f"Collection scan failed: {str(e)}",
+                level=RequestLogLevel.error,
+                commit=False,
+            )
+
+        # Mark the original request as completed (files handled via import)
+        book_request.processing_status = "completed"
+        session.add(book_request)
+        session.commit()
         return
 
     author = book.authors[0] if book.authors else "Unknown"
@@ -79,11 +140,18 @@ async def process_completed_download(
     complete_action = download_client_config.get_qbit_complete_action(session)
     use_hardlinks = complete_action == "hardlink"
     delete_source = delete_source or complete_action == "move"
+    if collection:
+        # Keep collection payload in place; copy/hardlink only
+        delete_source = False
     file_pattern = media_management_config.get_file_pattern(session)
     logger.info(
         "Processor: Organizing and renaming files",
         dest=dest_path,
         hardlinks=use_hardlinks,
+        delete_source=delete_source,
+        complete_action=complete_action,
+        collection=collection,
+        collection_label=collection_label,
     )
 
     book_request.processing_status = "organizing_files"
@@ -253,10 +321,11 @@ async def reorganize_existing_book(
     if not lib_root:
         return
 
-    if not current_path:
-        current_path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
+    source_path = current_path or LibraryScanner.find_book_path_by_asin(
+        lib_root, book.asin
+    )
 
-    if not current_path:
+    if not source_path:
         return
 
     file_pattern = media_management_config.get_file_pattern(session)
@@ -270,11 +339,11 @@ async def reorganize_existing_book(
 
     dest_path = os.path.join(lib_root, folder_rel_path)
 
-    if os.path.abspath(current_path) != os.path.abspath(dest_path):
+    if os.path.abspath(source_path) != os.path.abspath(dest_path):
         logger.info(
             "Processor: Moving book folder",
             title=book.title,
-            old=current_path,
+            old=source_path,
             new=dest_path,
         )
     else:
@@ -283,7 +352,7 @@ async def reorganize_existing_book(
         )
 
     audio_files = []
-    for root, _dirs, files in os.walk(current_path):
+    for root, _dirs, files in os.walk(source_path):
         for f in files:
             if any(
                 f.lower().endswith(ext)
@@ -319,12 +388,12 @@ async def reorganize_existing_book(
         new_audio_paths.append(d_path)
 
     moved = set(new_audio_paths)
-    for root, dirs, files in os.walk(current_path):
+    for root, dirs, files in os.walk(source_path):
         for f in files:
             s_path = os.path.join(root, f)
             if s_path in moved:
                 continue
-            rel_dir = os.path.relpath(root, current_path)
+            rel_dir = os.path.relpath(root, source_path)
             d_dir = os.path.join(dest_path, rel_dir) if rel_dir != "." else dest_path
             os.makedirs(d_dir, exist_ok=True)
             d_path = os.path.join(d_dir, f)
@@ -333,7 +402,7 @@ async def reorganize_existing_book(
             moved.add(s_path)
 
     # Clean up empty directories left behind
-    for root, dirs, files in list(os.walk(current_path, topdown=False)):
+    for root, dirs, files in list(os.walk(source_path, topdown=False)):
         if os.path.abspath(root) == os.path.abspath(dest_path):
             continue
         if not dirs and not files:
@@ -341,6 +410,23 @@ async def reorganize_existing_book(
                 os.rmdir(root)
             except Exception:
                 pass
+
+    # Prune empty parent folders (author/series) up to library root
+    def _prune_empty_parents(path: str, stop_at: str):
+        path = os.path.abspath(path)
+        stop_at = os.path.abspath(stop_at)
+        while os.path.commonpath([path, stop_at]) == stop_at and path != stop_at:
+            try:
+                if os.path.isdir(path) and not os.listdir(path):
+                    os.rmdir(path)
+                else:
+                    break
+            except Exception:
+                break
+            path = os.path.dirname(path)
+
+    if os.path.abspath(source_path) != os.path.abspath(dest_path):
+        _prune_empty_parents(source_path, lib_root)
 
     await generate_abs_metadata(book, dest_path)
     await generate_opf_metadata(session, book, dest_path)
