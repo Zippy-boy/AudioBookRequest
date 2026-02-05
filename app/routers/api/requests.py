@@ -55,6 +55,8 @@ router = APIRouter(prefix="/requests", tags=["Requests"])
 class DownloadSourceBody(BaseModel):
     guid: str
     indexer_id: int
+    collection: bool = False
+    collection_label: str | None = None
 
 
 @router.post("/{asin}", status_code=201)
@@ -351,6 +353,7 @@ async def list_sources(
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     only_cached: bool = False,
+    page: int = 0,
 ):
     try:
         prowlarr_config.raise_if_invalid(session)
@@ -363,6 +366,7 @@ async def list_sources(
         client_session=client_session,
         requester=admin_user,
         only_return_if_cached=only_cached,
+        page=page,
     )
     return result
 
@@ -392,10 +396,14 @@ async def download_book(
 
     try:
         from app.internal.prowlarr.util import prowlarr_source_cache
+        from app.internal.prowlarr.prowlarr import build_prowlarr_query
 
         book = session.get(Audiobook, asin)
+        cache_key = (
+            build_prowlarr_query(session, book) if book else ""
+        )
         sources = prowlarr_source_cache.get(
-            prowlarr_config.get_source_ttl(session), book.title if book else ""
+            prowlarr_config.get_source_ttl(session), cache_key
         )
         source = None
         if sources:
@@ -411,7 +419,7 @@ async def download_book(
         if not source:
             raise HTTPException(
                 status_code=404, detail="Source not found in cache for this book."
-            )
+        )
 
         success = await start_download(  # start_download now returns bool
             session=session,
@@ -421,6 +429,8 @@ async def download_book(
             requester=admin_user,
             audiobook_request=book_request,  # Pass the AudiobookRequest object
             prowlarr_source=source,  # prowlarr_source is now required
+            collection=body.collection,
+            collection_label=body.collection_label,
         )
     except ProwlarrMisconfigured as e:
         logger.error("Prowlarr misconfigured for download", error=str(e))

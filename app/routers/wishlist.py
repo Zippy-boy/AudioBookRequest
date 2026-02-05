@@ -883,6 +883,8 @@ async def list_sources(
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
     only_body: bool = False,
+    items_only: bool = False,
+    page: int = 0,
 ):
     try:
         result = await api_list_sources(
@@ -891,6 +893,7 @@ async def list_sources(
             client_session,
             admin_user,
             only_cached=not only_body,
+            page=page,
         )
     except HTTPException as e:
         if e.detail == "Prowlarr misconfigured":
@@ -898,6 +901,14 @@ async def list_sources(
                 "/settings/prowlarr?prowlarr_misconfigured=1", status_code=302
             )
         raise e
+
+    if items_only:
+        return template_response(
+            "wishlist_page/source_items.html",
+            request,
+            admin_user,
+            {"result": result},
+        )
 
     if only_body:
         return template_response(
@@ -924,8 +935,15 @@ async def download_book(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    collection: Annotated[bool | None, Form()] = False,
+    collection_label: Annotated[str | None, Form()] = None,
 ):
-    body = DownloadSourceBody(guid=guid, indexer_id=indexer_id)
+    body = DownloadSourceBody(
+        guid=guid,
+        indexer_id=indexer_id,
+        collection=bool(collection),
+        collection_label=collection_label,
+    )
     return await api_download_book(
         background_task=background_task,
         asin=asin,

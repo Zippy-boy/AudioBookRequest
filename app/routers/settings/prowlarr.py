@@ -43,6 +43,7 @@ async def read_prowlarr(
     selected = set(prowlarr_config.get_categories(session))
     indexers = await get_indexers(session, client_session)
     selected_indexers = set(prowlarr_config.get_indexers(session))
+    search_template = prowlarr_config.get_search_template(session)
 
     return template_response(
         "settings_page/prowlarr.html",
@@ -56,6 +57,7 @@ async def read_prowlarr(
             "selected_categories": selected,
             "indexers": indexers,
             "selected_indexers": selected_indexers,
+            "prowlarr_search_template": search_template,
             "prowlarr_misconfigured": True if prowlarr_misconfigured else False,
         },
     )
@@ -78,6 +80,21 @@ def update_prowlarr_base_url(
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     api_update_prowlarr_base_url(UpdateBaseUrl(base_url=base_url), session, admin_user)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.put("/search-template")
+def update_search_template(
+    template: Annotated[str, Form()],
+    session: Annotated[Session, Depends(get_session)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    from app.routers.api.settings.prowlarr import UpdateSearchTemplate
+    from app.routers.api.settings.prowlarr import (
+        update_search_template as api_update_search_template,
+    )
+
+    api_update_search_template(UpdateSearchTemplate(template=template), session, admin_user)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 

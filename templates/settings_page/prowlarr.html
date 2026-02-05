@@ -51,6 +51,25 @@
                 hx-swap="none"
                 class="btn btn-outline btn-sm w-full">Test Prowlarr Connection</button>
     </div>
+    <label for="prowlarr-search-template" class="pt-4">Search Template</label>
+    <p class="text-xs opacity-60">
+      Use placeholders to build the Prowlarr query. Available: {title}, {subtitle}, {author} (first author),
+      {authors} (all authors), {series} (first series), {asin}.
+    </p>
+    <form class="join w-full"
+          hx-put="{{ base_url }}/settings/prowlarr/search-template"
+          hx-disabled-elt="#search-template-button">
+      <input id="prowlarr-search-template"
+             name="template"
+             type="text"
+             value="{{ prowlarr_search_template }}"
+             class="input join-item w-full"
+             minlength="1"
+             required />
+      <button id="search-template-button" class="join-item btn">
+        Save
+      </button>
+    </form>
     {% block category %}
       <form id="category-select"
             class="flex flex-col gap-2"

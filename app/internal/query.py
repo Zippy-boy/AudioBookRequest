@@ -40,6 +40,9 @@ class QueryResult(pydantic.BaseModel):
     book: Audiobook
     state: Literal["ok", "querying", "uncached"]
     error_message: str | None = None
+    page: int = 0
+    page_size: int = 50
+    has_more: bool = False
 
     @property
     def ok(self) -> bool:
@@ -54,6 +57,8 @@ async def query_sources(
     force_refresh: bool = False,
     start_auto_download: bool = False,
     only_return_if_cached: bool = False,
+    page: int = 0,
+    page_size: int = 50,
 ) -> QueryResult:
     book = session.exec(select(Audiobook).where(Audiobook.asin == asin)).first()
     if not book:
@@ -61,7 +66,9 @@ async def query_sources(
 
     lock = _get_query_lock(asin)
     if not await _try_acquire(lock):
-        return QueryResult(sources=None, book=book, state="querying")
+        return QueryResult(
+            sources=None, book=book, state="querying", page=page, page_size=page_size
+        )
 
     try:
         try:
@@ -76,6 +83,8 @@ async def query_sources(
             force_refresh=force_refresh,
             only_return_if_cached=only_return_if_cached,
             indexer_ids=prowlarr_config.get_indexers(session),
+            page=page,
+            page_size=page_size,
         )
 
         if sources is None:
@@ -83,6 +92,8 @@ async def query_sources(
                 sources=None,
                 book=book,
                 state="uncached",
+                page=page,
+                page_size=page_size,
             )
 
         ranked = await rank_sources(session, client_session, sources, book)
@@ -116,6 +127,8 @@ async def query_sources(
                 requester=requester,
                 audiobook_request=book_request,  # Pass the AudiobookRequest object
                 prowlarr_source=ranked[0],  # prowlarr_source is now required
+                collection=getattr(ranked[0], "collection", False),
+                collection_label=getattr(ranked[0], "collection_label", None),
             )
 
             if not success:
@@ -125,6 +138,9 @@ async def query_sources(
             sources=ranked,
             book=book,
             state="ok",
+            page=page,
+            page_size=page_size,
+            has_more=len(ranked) == page_size,
         )
     finally:
         lock.release()

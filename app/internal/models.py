@@ -227,6 +227,8 @@ class BaseSource(BaseSQLModel):
     indexer_flags: list[str]
     download_url: str | None = None
     magnet_url: str | None = None
+    collection: bool = False
+    collection_label: str | None = None
 
     book_metadata: BookMetadata = BookMetadata()
 

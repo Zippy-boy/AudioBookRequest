@@ -33,6 +33,51 @@ from app.util.log import logger
 from app.internal.request_logs import log_request_event
 
 
+def build_prowlarr_query(session: Session, book: Audiobook) -> str:
+    """
+    Builds a Prowlarr search string from the configured template.
+    Placeholders: {title}, {subtitle}, {author}, {authors}, {series}, {asin}
+    """
+    template = prowlarr_config.get_search_template(session) or "{title}"
+    context = {
+        "title": book.title or "",
+        "subtitle": book.subtitle or "",
+        "author": book.authors[0] if book.authors else "",
+        "authors": ", ".join(book.authors) if book.authors else "",
+        "series": book.series[0] if book.series else "",
+        "asin": book.asin,
+    }
+    try:
+        rendered = template.format(**context).strip()
+    except Exception:
+        rendered = ""
+    return rendered or book.title
+
+
+def _detect_collection(title: str) -> tuple[bool, str | None]:
+    """
+    Very light heuristic: mark obvious collection/boxset torrents.
+    """
+    t = (title or "").lower()
+    markers = [
+        "complete collection",
+        "collection",
+        "complete works",
+        "box set",
+        "boxset",
+        "omnibus",
+        "anthology",
+        "series pack",
+        "full series",
+        "discography",
+        "bibliography",
+    ]
+    for m in markers:
+        if m in t:
+            return True, m
+    return False, None
+
+
 async def _get_torrent_info_hash(
     client_session: ClientSession, download_url: str
 ) -> str | None:
@@ -63,6 +108,8 @@ async def start_download(
     requester: User,
     audiobook_request: AudiobookRequest,  # Changed from book_asin: str
     prowlarr_source: ProwlarrSource,  # Now required to be present
+    collection: bool = False,
+    collection_label: str | None = None,
 ) -> bool:  # Now returns only bool, as it only attempts direct qBittorrent
     from app.internal.download_clients.config import download_client_config
     from app.internal.download_clients.qbittorrent import QbittorrentClient
@@ -81,6 +128,12 @@ async def start_download(
     success = False
     info_hash = None  # Initialize info_hash
 
+    tags = [f"asin:{audiobook_request.asin}"]
+    if collection:
+        tags.append("collection")
+        if collection_label:
+            tags.append(f"collection:{collection_label[:40]}")
+
     if prowlarr_source.magnet_url:
         import re
 
@@ -98,7 +151,7 @@ async def start_download(
         success = await client.add_torrent(
             prowlarr_source.magnet_url,
             is_magnet=True,
-            tags=[f"asin:{audiobook_request.asin}"],
+            tags=tags,
         )
     elif prowlarr_source.download_url:
         # We need to fetch the torrent file content
@@ -136,7 +189,7 @@ async def start_download(
                         error=str(e),
                     )
                 success = await client.add_torrent(
-                    content, is_magnet=False, tags=[f"asin:{audiobook_request.asin}"]
+                    content, is_magnet=False, tags=tags
                 )
             else:
                 logger.error(
@@ -157,7 +210,7 @@ async def start_download(
             (t for t in existing if t.get("hash", "").lower() == info_hash), None
         )
         if match:
-            await client.add_torrent_tags(match.get("hash"), [f"asin:{audiobook_request.asin}"])
+            await client.add_torrent_tags(match.get("hash"), tags)
             audiobook_request.torrent_hash = match.get("hash")
             audiobook_request.download_state = match.get("state", "queued")
             audiobook_request.download_progress = match.get("progress", 0.0)
@@ -242,8 +295,13 @@ async def query_prowlarr(
     indexer_ids: list[int] | None = None,
     force_refresh: bool = False,
     only_return_if_cached: bool = False,
+    page: int = 0,
+    page_size: int = 50,
 ) -> list[ProwlarrSource] | None:
-    query = book.title
+    page = max(int(page or 0), 0)
+
+    query = build_prowlarr_query(session, book)
+    cache_key = f"{query}|p={page}|l={page_size}"
 
     base_url = prowlarr_config.get_base_url(session)
     api_key = prowlarr_config.get_api_key(session)
@@ -253,19 +311,19 @@ async def query_prowlarr(
     source_ttl = prowlarr_config.get_source_ttl(session)
 
     if only_return_if_cached:
-        cached_sources = prowlarr_source_cache.get(source_ttl, query)
+        cached_sources = prowlarr_source_cache.get(source_ttl, cache_key)
         return cached_sources
 
     if not force_refresh:
-        cached_sources = prowlarr_source_cache.get(source_ttl, query)
+        cached_sources = prowlarr_source_cache.get(source_ttl, cache_key)
         if cached_sources:
             return cached_sources
 
     params: dict[str, int | str | list[int]] = {
         "query": query,
         "type": "search",
-        "limit": 100,
-        "offset": 0,
+        "limit": page_size,
+        "offset": page * page_size,
     }
 
     if len(x := prowlarr_config.get_categories(session)) > 0:
@@ -330,6 +388,7 @@ async def query_prowlarr(
                 )
                 continue
             if result.protocol == "torrent":
+                is_collection, label = _detect_collection(result.title)
                 sources.append(
                     TorrentSource(
                         protocol="torrent",
@@ -337,6 +396,8 @@ async def query_prowlarr(
                         indexer_id=result.indexerId,
                         indexer=result.indexer,
                         title=result.title,
+                        collection=is_collection,
+                        collection_label=label,
                         seeders=result.seeders,
                         leechers=result.leechers,
                         size=result.size,
@@ -348,6 +409,7 @@ async def query_prowlarr(
                     )
                 )
             else:
+                is_collection, label = _detect_collection(result.title)
                 sources.append(
                     UsenetSource(
                         protocol="usenet",
@@ -355,6 +417,8 @@ async def query_prowlarr(
                         indexer_id=result.indexerId,
                         indexer=result.indexer,
                         title=result.title,
+                        collection=is_collection,
+                        collection_label=label,
                         grabs=result.grabs,
                         size=result.size,
                         info_url=result.infoUrl,
@@ -371,7 +435,16 @@ async def query_prowlarr(
     container = SessionContainer(session=session, client_session=client_session)
     await edit_source_metadata(book, sources, container)
 
-    prowlarr_source_cache.set(sources, query)
+    prowlarr_source_cache.set(sources, cache_key)
+
+    # Maintain an aggregated cache for the whole query to support downloads/lookups
+    existing = prowlarr_source_cache.get(source_ttl, query) or []
+    dedup: dict[tuple[str, int], ProwlarrSource] = {
+        (s.guid, s.indexer_id): s for s in existing
+    }
+    for s in sources:
+        dedup[(s.guid, s.indexer_id)] = s
+    prowlarr_source_cache.set(list(dedup.values()), query)
 
     return sources
 

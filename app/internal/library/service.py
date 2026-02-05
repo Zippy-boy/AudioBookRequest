@@ -124,14 +124,35 @@ async def refresh_book_metadata(
     if book and book.downloaded:
         lib_root = media_management_config.get_library_path(session)
         folder_rel_path = get_book_folder_path(session, book)
+        existing_path = (
+            LibraryScanner.find_book_path_by_asin(lib_root, book.asin) if lib_root else None
+        )
 
         if lib_root and folder_rel_path:
             dest_path = os.path.join(lib_root, folder_rel_path)
 
-            if os.path.exists(dest_path):
+            # If the book lives somewhere else (e.g., after language/author change), reorganize it.
+            if existing_path and os.path.abspath(existing_path) != os.path.abspath(dest_path):
+                logger.info(
+                    "Refreshing metadata and relocating book",
+                    asin=book.asin,
+                    old_path=existing_path,
+                    new_path=dest_path,
+                )
+                from app.internal.processing.processor import reorganize_existing_book
+
+                await reorganize_existing_book(session, book, current_path=existing_path)
+                metadata_updated = True
+            elif os.path.exists(dest_path):
                 logger.info("Refreshing metadata files on disk", path=dest_path)
                 await generate_abs_metadata(book, dest_path)
                 await generate_opf_metadata(session, book, dest_path)
+                metadata_updated = True
+            elif existing_path:
+                # Fallback: regenerate metadata in current location even if it doesn't match desired pattern
+                logger.info("Refreshing metadata at existing path", path=existing_path)
+                await generate_abs_metadata(book, existing_path)
+                await generate_opf_metadata(session, book, existing_path)
                 metadata_updated = True
 
     return metadata_updated

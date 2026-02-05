@@ -19,6 +19,7 @@ ProwlarrConfigKey = Literal[
     "prowlarr_categories",
     "prowlarr_indexers",
     "prowlarr_default_language",
+    "prowlarr_search_template",
 ]
 
 
@@ -79,6 +80,13 @@ class ProwlarrConfig(StringConfigCache[ProwlarrConfigKey]):
 
     def set_default_language(self, session: Session, language: str):
         self.set(session, "prowlarr_default_language", language)
+
+    def get_search_template(self, session: Session) -> str:
+        # Use title-only by default
+        return self.get(session, "prowlarr_search_template", "{title}")
+
+    def set_search_template(self, session: Session, template: str):
+        self.set(session, "prowlarr_search_template", template)
 
 
 prowlarr_config = ProwlarrConfig()
