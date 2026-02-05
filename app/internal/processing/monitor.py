@@ -1,4 +1,5 @@
 import asyncio
+import re
 from sqlmodel import Session, select
 from app.util.log import logger
 from app.internal.download_clients.qbittorrent import QbittorrentClient
@@ -181,16 +182,6 @@ async def check_qbittorrent(session: Session):
                         )
                         await client.add_torrent_tags(
                             current_torrent.get("hash"), ["processed"]
-                        )
-
-                        # Remove from qBittorrent since it's imported (untrack)
-                        logger.info(
-                            "Monitor: Removing completed torrent from qBittorrent",
-                            asin=asin,
-                            hash=current_torrent.get("hash"),
-                        )
-                        await client.delete_torrent(
-                            current_torrent.get("hash"), delete_files=False
                         )
 
                         any_processed = True
