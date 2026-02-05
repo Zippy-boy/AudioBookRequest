@@ -98,6 +98,11 @@ async def bulk_delete(
         session.add(book)
 
     session.commit()
+
+    # Kick ABS rescan so removed items/files get cleared from ABS
+    if abs_config.is_valid(session):
+        await background_abs_trigger_scan()
+
     return HTMLResponse("<script>window.location.reload();</script>")
 
 

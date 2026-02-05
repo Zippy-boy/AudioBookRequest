@@ -185,6 +185,11 @@ async def delete_request(
             )
         )
     session.commit()
+
+    # Trigger ABS rescan to drop removed items when files were deleted
+    if delete_files and abs_config.is_valid(session):
+        await background_abs_trigger_scan()
+
     return Response(status_code=204)
 
 

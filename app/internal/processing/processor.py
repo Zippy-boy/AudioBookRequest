@@ -94,7 +94,6 @@ async def process_completed_download(
             async with aiohttp.ClientSession() as client_session:
                 scanner = LibraryScanner(import_session.id)
                 await scanner.scan(client_session)
-            # scanner sets status to review_ready
             session.refresh(import_session)
             log_request_event(
                 session,
@@ -117,7 +116,6 @@ async def process_completed_download(
                 commit=False,
             )
 
-        # Mark the original request as completed (files handled via import)
         book_request.processing_status = "completed"
         session.add(book_request)
         session.commit()

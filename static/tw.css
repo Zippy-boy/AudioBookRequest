@@ -115,7 +115,6 @@
     gap: var(--app-space-xl);
     padding-inline: var(--app-space-lg);
     padding-block: var(--app-space-xl);
-    animation: app-fade 0.6s ease-out both;
   }
 
   .app-shell-center {
@@ -150,8 +149,6 @@
 
   @media (hover: hover) {
     .app-card:hover {
-      transform: scale(1.01);
-      box-shadow: var(--app-shadow);
       border-color: rgba(59, 130, 246, 0.28);
     }
   }
