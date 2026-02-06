@@ -5,7 +5,7 @@ import asyncio
 import json
 from typing import List, Optional, Tuple
 from sqlmodel import Session, select
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientConnectionError
 from rapidfuzz import fuzz
 
 from app.internal.models import (
@@ -630,6 +630,31 @@ class LibraryScanner:
         if language and language in audible_regions and language != search_region:
             search_region = language
 
+        async def _search_books(query: str, region: str):
+            """
+            Resilient search wrapper that retries with a fresh ClientSession if the shared one is closed.
+            """
+            try:
+                return await list_audible_books(
+                    session,
+                    client_session,
+                    query=query,
+                    num_results=20,
+                    audible_region=region,
+                )
+            except (RuntimeError, ClientConnectionError):
+                async with ClientSession() as fresh_client:
+                    return await list_audible_books(
+                        session,
+                        fresh_client,
+                        query=query,
+                        num_results=20,
+                        audible_region=region,
+                    )
+            except Exception as e:
+                logger.debug("Hunt failed", query=query, error=str(e))
+                return []
+
         for q in search_queries:
             if not q or len(q) < 3:
                 continue
@@ -644,149 +669,138 @@ class LibraryScanner:
                 if lang_name and lang_name.lower() not in q.lower():
                     query_str = f"{q} {lang_name}"
 
-            try:
-                title_candidates_for_score = (
-                    title_candidates if title_candidates else [q]
-                )
-                results = await list_audible_books(
-                    session,
-                    client_session,
-                    query=query_str,
-                    num_results=20,
-                    audible_region=search_region,
-                )
-                for b in results:
-                    if b.asin in seen_asins:
-                        continue
-                    seen_asins.add(b.asin)
+            title_candidates_for_score = title_candidates if title_candidates else [q]
+            results = await _search_books(query_str, search_region)
+            for b in results:
+                if b.asin in seen_asins:
+                    continue
+                seen_asins.add(b.asin)
 
-                    book_title_variants = [b.title]
-                    if b.subtitle:
-                        book_title_variants.append(f"{b.title} {b.subtitle}")
-                    if b.series:
-                        book_title_variants.extend(
-                            [f"{b.title} {series}" for series in b.series]
+                book_title_variants = [b.title]
+                if b.subtitle:
+                    book_title_variants.append(f"{b.title} {b.subtitle}")
+                if b.series:
+                    book_title_variants.extend(
+                        [f"{b.title} {series}" for series in b.series]
+                    )
+
+                # Score the title (multiple variants, normalized)
+                t_score = 0.0
+                for title in title_candidates_for_score:
+                    for book_title in book_title_variants:
+                        t_score = max(
+                            t_score, self._score_text_pair(title, book_title)
                         )
 
-                    # Score the title (multiple variants, normalized)
-                    t_score = 0.0
+                # Length penalty (only when book title is much shorter)
+                if title_candidates_for_score:
+                    ref_title = max(
+                        title_candidates_for_score,
+                        key=lambda t: len(self._normalize_text(t)),
+                    )
+                    ref_len = len(self._normalize_text(ref_title))
+                    book_len = len(self._normalize_text(b.title))
+                    if ref_len and book_len and book_len < ref_len * 0.7:
+                        t_score -= abs(ref_len - book_len) * 1.5
+
+                # Start match boost
+                boosted = False
+                for title in title_candidates_for_score:
+                    title_first = self._normalize_text(title).split()[:1]
+                    if not title_first:
+                        continue
+                    for book_title in book_title_variants:
+                        if (
+                            self._normalize_text(book_title).split()[:1]
+                            == title_first
+                        ):
+                            t_score += 4
+                            boosted = True
+                            break
+                    if boosted:
+                        break
+
+                # Series boost if close already
+                series_score = 0.0
+                if b.series and title_candidates_for_score:
                     for title in title_candidates_for_score:
-                        for book_title in book_title_variants:
-                            t_score = max(
-                                t_score, self._score_text_pair(title, book_title)
+                        for series in b.series:
+                            series_score = max(
+                                series_score,
+                                self._score_text_pair(title, series),
+                            )
+                if series_score > 90 and t_score > 60:
+                    t_score = max(t_score, series_score - 4)
+
+                # Score the author
+                a_score = 0.0
+                if author_candidates and b.authors:
+                    for author in author_candidates:
+                        for b_author in b.authors:
+                            a_score = max(
+                                a_score,
+                                self._score_text_pair(author, b_author),
                             )
 
-                    # Length penalty (only when book title is much shorter)
-                    if title_candidates_for_score:
-                        ref_title = max(
-                            title_candidates_for_score,
-                            key=lambda t: len(self._normalize_text(t)),
-                        )
-                        ref_len = len(self._normalize_text(ref_title))
-                        book_len = len(self._normalize_text(b.title))
-                        if ref_len and book_len and book_len < ref_len * 0.7:
-                            t_score -= abs(ref_len - book_len) * 1.5
-
-                    # Start match boost
-                    boosted = False
-                    for title in title_candidates_for_score:
-                        title_first = self._normalize_text(title).split()[:1]
-                        if not title_first:
-                            continue
+                # Detect swaps
+                swap_t_score = 0.0
+                if author_candidates:
+                    for author in author_candidates:
                         for book_title in book_title_variants:
-                            if (
-                                self._normalize_text(book_title).split()[:1]
-                                == title_first
-                            ):
-                                t_score += 4
-                                boosted = True
-                                break
-                        if boosted:
+                            swap_t_score = max(
+                                swap_t_score,
+                                self._score_text_pair(author, book_title),
+                            )
+                swap_a_score = 0.0
+                if title_candidates and b.authors:
+                    for title in title_candidates:
+                        for b_author in b.authors:
+                            swap_a_score = max(
+                                swap_a_score,
+                                self._score_text_pair(title, b_author),
+                            )
+
+                is_swapped = swap_t_score > 88 and swap_a_score > 88
+                if is_swapped:
+                    t_score, a_score = swap_t_score, swap_a_score
+
+                final_score = 0.0
+                if author_candidates:
+                    author_in_title = False
+                    author_in_series = False
+                    for author in author_candidates:
+                        if self._score_text_pair(author, b.title) > 85:
+                            author_in_title = True
                             break
-
-                    # Series boost if close already
-                    series_score = 0.0
-                    if b.series and title_candidates_for_score:
-                        for title in title_candidates_for_score:
-                            for series in b.series:
-                                series_score = max(
-                                    series_score,
-                                    self._score_text_pair(title, series),
-                                )
-                    if series_score > 90 and t_score > 60:
-                        t_score = max(t_score, series_score - 4)
-
-                    # Score the author
-                    a_score = 0.0
-                    if author_candidates and b.authors:
+                    if b.series and not author_in_series:
                         for author in author_candidates:
-                            for b_author in b.authors:
-                                a_score = max(
-                                    a_score,
-                                    self._score_text_pair(author, b_author),
-                                )
-
-                    # Detect swaps
-                    swap_t_score = 0.0
-                    if author_candidates:
-                        for author in author_candidates:
-                            for book_title in book_title_variants:
-                                swap_t_score = max(
-                                    swap_t_score,
-                                    self._score_text_pair(author, book_title),
-                                )
-                    swap_a_score = 0.0
-                    if title_candidates and b.authors:
-                        for title in title_candidates:
-                            for b_author in b.authors:
-                                swap_a_score = max(
-                                    swap_a_score,
-                                    self._score_text_pair(title, b_author),
-                                )
-
-                    is_swapped = swap_t_score > 88 and swap_a_score > 88
-                    if is_swapped:
-                        t_score, a_score = swap_t_score, swap_a_score
-
-                    final_score = 0.0
-                    if author_candidates:
-                        author_in_title = False
-                        author_in_series = False
-                        for author in author_candidates:
-                            if self._score_text_pair(author, b.title) > 85:
-                                author_in_title = True
+                            if any(
+                                [
+                                    self._score_text_pair(author, s) > 85
+                                    for s in b.series
+                                ]
+                            ):
+                                author_in_series = True
                                 break
-                        if b.series and not author_in_series:
-                            for author in author_candidates:
-                                if any(
-                                    [
-                                        self._score_text_pair(author, s) > 85
-                                        for s in b.series
-                                    ]
-                                ):
-                                    author_in_series = True
-                                    break
 
-                        if (
-                            is_swapped
-                            or author_in_title
-                            or author_in_series
-                            or t_score > 95
-                        ):
-                            final_score = (t_score * 0.9) + (a_score * 0.1)
-                        elif a_score < 50 and t_score < 90:
-                            final_score = (t_score * 0.7) + (a_score * 0.3) - 25
-                        else:
-                            final_score = (t_score * 0.82) + (a_score * 0.18)
+                    if (
+                        is_swapped
+                        or author_in_title
+                        or author_in_series
+                        or t_score > 95
+                    ):
+                        final_score = (t_score * 0.9) + (a_score * 0.1)
+                    elif a_score < 50 and t_score < 90:
+                        final_score = (t_score * 0.7) + (a_score * 0.3) - 25
                     else:
-                        final_score = t_score * 0.96
+                        final_score = (t_score * 0.82) + (a_score * 0.18)
+                else:
+                    final_score = t_score * 0.96
 
-                    final_score = max(0.0, min(100.0, final_score))
+                final_score = max(0.0, min(100.0, final_score))
 
-                    if final_score > best_score:
-                        best_score, best_match = final_score, b
-            except Exception as e:
-                logger.debug("Hunt failed", query=query_str, error=str(e))
+                if final_score > best_score:
+                    best_score, best_match = final_score, b
 
         if best_match and best_score > 60:
             exact_match = self._is_exact_title_author_match(

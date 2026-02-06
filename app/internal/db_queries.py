@@ -129,8 +129,7 @@ def get_wishlist_results(
         statement = statement.join(AudiobookRequest)
         statement = statement.where(
             not_(Audiobook.downloaded),
-            AudiobookRequest.torrent_hash.is_(None),
-            AudiobookRequest.processing_status == "pending",
+            AudiobookRequest.processing_status != "completed",
         )
         if username:
             statement = statement.where(AudiobookRequest.user_username == username)

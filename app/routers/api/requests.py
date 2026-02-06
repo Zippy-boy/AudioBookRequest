@@ -90,12 +90,38 @@ async def create_request(
     if existing_library_book and existing_library_book.downloaded:
         raise HTTPException(status_code=400, detail="Book already in library")
 
-    if not session.exec(
+    existing_request = session.exec(
         select(AudiobookRequest).where(
             AudiobookRequest.asin == asin,
             AudiobookRequest.user_username == user.username,
         )
-    ).first():
+    ).first()
+
+    if existing_request:
+        # If the book isn't downloaded, allow reopening the request instead of blocking
+        if existing_library_book and existing_library_book.downloaded:
+            raise HTTPException(status_code=409, detail="Book already requested")
+
+        # Reset stale/old request so user can download again
+        existing_request.processing_status = "pending"
+        existing_request.download_progress = 0.0
+        existing_request.torrent_hash = None
+        existing_request.download_state = None
+        session.add(existing_request)
+        session.commit()
+        log_request_event(
+            session,
+            asin,
+            user.username,
+            "Request reopened.",
+            commit=True,
+        )
+        logger.info(
+            "Reopened audiobook request",
+            username=user.username,
+            asin=asin,
+        )
+    else:
         book_request = AudiobookRequest(asin=asin, user_username=user.username)
         session.add(book_request)
         session.commit()
@@ -111,8 +137,6 @@ async def create_request(
             username=user.username,
             asin=asin,
         )
-    else:
-        raise HTTPException(status_code=409, detail="Book already requested")
 
     background_task.add_task(
         send_all_notifications,
