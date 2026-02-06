@@ -70,6 +70,15 @@
         Save
       </button>
     </form>
+
+    <div class="pt-4">
+      <button
+        hx-post="{{ base_url }}/library/deep-clean"
+        hx-swap="none"
+        class="btn btn-outline btn-error btn-sm w-full">
+        Deep Clean (reconcile + ABS rescan)
+      </button>
+    </div>
     {% block category %}
       <form id="category-select"
             class="flex flex-col gap-2"

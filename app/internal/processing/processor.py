@@ -1,11 +1,13 @@
 import os
 import shutil
 from typing import Optional
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.internal.models import (
     Audiobook,
     AudiobookRequest,
     LibraryImportSession,
+    LibraryImportItem,
+    ImportItemStatus,
     ImportSessionStatus,
     RequestLogLevel,
 )
@@ -58,6 +60,7 @@ async def process_completed_download(
     delete_source: bool = False,
     collection: bool = False,
     collection_label: str | None = None,
+    preserve_source: bool = False,
 ):
     """
     Takes a completed download, organizes it into the library, and generates metadata.
@@ -95,11 +98,94 @@ async def process_completed_download(
                 scanner = LibraryScanner(import_session.id)
                 await scanner.scan(client_session)
             session.refresh(import_session)
+
+            items = session.exec(
+                select(LibraryImportItem).where(
+                    LibraryImportItem.session_id == import_session.id
+                )
+            ).all()
+            if not items:
+                import_session.status = ImportSessionStatus.failed
+                session.add(import_session)
+                book_request.processing_status = "failed: collection scan found no items"
+                session.add(book_request)
+                session.commit()
+                log_request_event(
+                    session,
+                    book_request.asin,
+                    book_request.user_username,
+                    "Collection scan found no importable items.",
+                    level=RequestLogLevel.error,
+                    commit=False,
+                )
+                return
+
             log_request_event(
                 session,
                 book_request.asin,
                 book_request.user_username,
-                "Collection scan completed. Review/import items in Library > Import.",
+                "Collection scan completed. Auto-importing matched items with Library Import.",
+                commit=False,
+            )
+            session.commit()
+
+            try:
+                from app.routers.library import run_importer_task
+
+                import_session.status = ImportSessionStatus.importing
+                session.add(import_session)
+                session.commit()
+
+                await run_importer_task(
+                    import_session.id,
+                    move_files=False,
+                    username=book_request.user_username,
+                    force_copy=True,
+                )
+                session.refresh(import_session)
+                if import_session.status == ImportSessionStatus.failed:
+                    book_request.processing_status = "failed: collection import failed"
+                    session.add(book_request)
+                    session.commit()
+                    log_request_event(
+                        session,
+                        book_request.asin,
+                        book_request.user_username,
+                        "Collection auto-import failed. Check Library > Import session.",
+                        level=RequestLogLevel.error,
+                        commit=False,
+                    )
+                    return
+                log_request_event(
+                    session,
+                    book_request.asin,
+                    book_request.user_username,
+                    "Collection auto-import completed.",
+                    commit=False,
+                )
+            except Exception as e:
+                import_session.status = ImportSessionStatus.failed
+                session.add(import_session)
+                session.commit()
+                logger.error("Processor: Collection auto-import failed", error=str(e))
+                log_request_event(
+                    session,
+                    book_request.asin,
+                    book_request.user_username,
+                    f"Collection auto-import failed: {str(e)}",
+                    level=RequestLogLevel.error,
+                    commit=False,
+                )
+                book_request.processing_status = f"failed: {str(e)}"
+                session.add(book_request)
+                session.commit()
+                return
+
+            log_request_event(
+                session,
+                book_request.asin,
+                book_request.user_username,
+                "Collection scan completed and auto-import executed via Library > Import.",
                 commit=False,
             )
         except Exception as e:
@@ -115,10 +201,48 @@ async def process_completed_download(
                 level=RequestLogLevel.error,
                 commit=False,
             )
+            book_request.processing_status = f"failed: {str(e)}"
+            session.add(book_request)
+            session.commit()
+            return
 
-        book_request.processing_status = "completed"
-        session.add(book_request)
-        session.commit()
+        # Evaluate results for visibility
+        items = session.exec(
+            select(LibraryImportItem).where(
+                LibraryImportItem.session_id == import_session.id
+            )
+        ).all()
+        imported_count = len([i for i in items if i.status == ImportItemStatus.imported])
+        error_count = len([i for i in items if i.status == ImportItemStatus.error])
+        pending_count = len([i for i in items if i.status == ImportItemStatus.pending])
+
+        if (
+            import_session.status == ImportSessionStatus.completed
+            and error_count == 0
+            and imported_count > 0
+        ):
+            book_request.processing_status = "completed"
+            session.add(book_request)
+            session.commit()
+            log_request_event(
+                session,
+                book_request.asin,
+                book_request.user_username,
+                f"Collection auto-import completed ({imported_count} imported).",
+                commit=False,
+            )
+        else:
+            book_request.processing_status = "failed: collection import incomplete"
+            session.add(book_request)
+            session.commit()
+            log_request_event(
+                session,
+                book_request.asin,
+                book_request.user_username,
+                f"Collection import incomplete (imported={imported_count}, errors={error_count}, pending={pending_count}). Review in Library > Import.",
+                level=RequestLogLevel.error,
+                commit=False,
+            )
         return
 
     author = book.authors[0] if book.authors else "Unknown"
@@ -138,7 +262,7 @@ async def process_completed_download(
     complete_action = download_client_config.get_qbit_complete_action(session)
     use_hardlinks = complete_action == "hardlink"
     delete_source = delete_source or complete_action == "move"
-    if collection:
+    if collection or preserve_source:
         # Keep collection payload in place; copy/hardlink only
         delete_source = False
     file_pattern = media_management_config.get_file_pattern(session)
@@ -150,6 +274,7 @@ async def process_completed_download(
         complete_action=complete_action,
         collection=collection,
         collection_label=collection_label,
+        preserve_source=preserve_source,
     )
 
     book_request.processing_status = "organizing_files"

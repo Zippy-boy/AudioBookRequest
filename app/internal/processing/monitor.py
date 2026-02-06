@@ -180,6 +180,11 @@ async def check_qbittorrent(session: Session):
                             collection=collection_flag,
                             collection_label=collection_label,
                         )
+                        if str(req.processing_status).startswith("failed") or req.processing_status != "completed":
+                            session.add(req)
+                            session.commit()
+                            continue
+
                         await client.add_torrent_tags(
                             current_torrent.get("hash"), ["processed"]
                         )

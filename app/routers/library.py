@@ -38,6 +38,57 @@ def get_import_view(request: Request) -> str:
     return "grid" if view == "grid" else "table"
 
 
+@router.post("/deep-clean")
+async def start_deep_clean(
+    background_tasks: BackgroundTasks,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    """
+    Runs a deep clean: reconcile internal library, clear stale cache, and trigger ABS rescan.
+    """
+    # Kick off reconciliation of the existing library
+    try:
+        old_sessions = session.exec(
+            select(LibraryImportSession).where(
+                LibraryImportSession.root_path == "__INTERNAL_LIBRARY__"
+            )
+        ).all()
+        for s in old_sessions:
+            session.delete(s)
+        session.commit()
+    except Exception:
+        session.rollback()
+
+    new_session = LibraryImportSession(
+        root_path="__INTERNAL_LIBRARY__", status=ImportSessionStatus.scanning
+    )
+    session.add(new_session)
+    session.commit()
+    session.refresh(new_session)
+
+    background_tasks.add_task(run_reconciler_task, new_session.id)
+
+    # Remove stale audiobook rows not referenced by requests/imports
+    from app.internal.book_search import clear_old_book_caches
+
+    clear_old_book_caches(session)
+
+    # Trigger ABS rescan if configured
+    async def abs_rescan():
+        try:
+            async with ClientSession() as client_session:
+                await _trigger_abs_rescan_if_configured(session, client_session)
+        except Exception:
+            pass
+
+    background_tasks.add_task(abs_rescan)
+
+    return HTMLResponse(
+        """<script>toast('Deep clean started. Library scan and ABS rescan running in background.', 'info');</script>"""
+    )
+
+
 async def _trigger_abs_rescan_if_configured(
     session: Session, client_session: ClientSession
 ) -> bool:
@@ -96,6 +147,9 @@ async def bulk_delete(
             book.downloaded = False
 
         session.add(book)
+
+        # Remove associated requests so the title can be re-requested
+        session.execute(delete(AudiobookRequest).where(AudiobookRequest.asin == asin))
 
     session.commit()
 
@@ -1190,7 +1244,9 @@ async def execute_item_import(
     )
 
 
-async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, username: str):
+async def run_single_importer_task(
+    item_id: uuid.UUID, move_files: bool, username: str, force_copy: bool = False
+):
     """
     Background task to execute a single item import.
     """
@@ -1254,6 +1310,7 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
             item.source_path,
             delete_source=True if is_reconciliation else move_files,
             collection=False,
+            preserve_source=force_copy,
         )
 
         item.status = ImportItemStatus.imported
@@ -1326,7 +1383,9 @@ async def execute_import(
     )
 
 
-async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: str):
+async def run_importer_task(
+    session_id: uuid.UUID, move_files: bool, username: str, force_copy: bool = False
+):
     """
     Background task to execute the import in parallel (5 at a time).
     """
@@ -1404,6 +1463,7 @@ async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: s
                         item.source_path,
                         delete_source=True if is_reconciliation else move_files,
                         collection=False,
+                        preserve_source=force_copy,
                     )
 
                     item.status = ImportItemStatus.imported
@@ -1429,7 +1489,15 @@ async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: s
     with next(get_session()) as db_session:
         import_session = db_session.get(LibraryImportSession, session_id)
         if import_session:
-            import_session.status = ImportSessionStatus.completed
+            items = db_session.exec(
+                select(LibraryImportItem).where(
+                    LibraryImportItem.session_id == session_id
+                )
+            ).all()
+            has_errors = any(i.status == ImportItemStatus.error for i in items)
+            import_session.status = (
+                ImportSessionStatus.failed if has_errors else ImportSessionStatus.completed
+            )
             db_session.add(import_session)
             db_session.commit()
 
