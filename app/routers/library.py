@@ -1,4 +1,5 @@
 import uuid
+import os
 from datetime import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks, Security
@@ -36,6 +37,33 @@ router = APIRouter(prefix="/library", tags=["Library"])
 def get_import_view(request: Request) -> str:
     view = request.query_params.get("view", "table")
     return "grid" if view == "grid" else "table"
+
+
+def _detect_and_fix_db_issues(session: Session) -> dict:
+    """
+    Basic sanity checks to keep DB and filesystem in sync and surface issues to the user.
+    """
+    issues = {"fixed_missing": 0, "warnings": []}
+    lib_root = media_management_config.get_library_path(session)
+    if not lib_root or not os.path.isdir(lib_root):
+        issues["warnings"].append("Library path is not configured or missing on disk.")
+        return issues
+
+    from app.internal.library.scanner import LibraryScanner
+
+    downloaded_books = session.exec(
+        select(Audiobook).where(Audiobook.downloaded.is_(True))
+    ).all()
+    for book in downloaded_books:
+        path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
+        if not path:
+            # Flip the downloaded flag so the book can be re-requested/imported.
+            book.downloaded = False
+            session.add(book)
+            issues["fixed_missing"] += 1
+
+    session.commit()
+    return issues
 
 
 @router.post("/deep-clean")
@@ -84,8 +112,19 @@ async def start_deep_clean(
 
     background_tasks.add_task(abs_rescan)
 
+    issues = _detect_and_fix_db_issues(session)
+    warning_toasts = "".join(
+        [
+            f"<script>toast('{w}', 'warning');</script>"
+            for w in issues.get("warnings", [])
+        ]
+    )
+    fixed_msg = ""
+    if issues.get("fixed_missing"):
+        fixed_msg = f"<script>toast('Reset {issues['fixed_missing']} missing book(s) so they can be re-requested.', 'info');</script>"
+
     return HTMLResponse(
-        """<script>toast('Deep clean started. Library scan and ABS rescan running in background.', 'info');</script>"""
+        f"""<script>toast('Deep clean started. Library scan and ABS rescan running in background.', 'info');</script>{fixed_msg}{warning_toasts}"""
     )
 
 

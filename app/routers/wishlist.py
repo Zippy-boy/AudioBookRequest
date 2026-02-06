@@ -43,6 +43,8 @@ from app.routers.api.requests import delete_request as api_delete_request
 from app.routers.api.requests import list_sources as api_list_sources
 from app.routers.api.requests import mark_downloaded as api_mark_downloaded
 from app.util.connection import get_connection
+import os
+import uuid
 from app.util.db import get_session
 from app.util.redirect import BaseUrlRedirectResponse
 from app.util.templates import template_response
@@ -190,6 +192,40 @@ async def active_downloads(
         ).all()
     }
 
+    def _infer_collection_items(path: str) -> list[dict[str, str | None]]:
+        """
+        Use the existing LibraryScanner heuristics to show per-book titles inside a collection download.
+        """
+        if not path or not os.path.isdir(path):
+            return []
+        try:
+            from app.internal.library.scanner import LibraryScanner
+
+            scanner = LibraryScanner(uuid.uuid4())
+            units = scanner._find_book_units(path)
+            seen = set()
+            items = []
+            for unit_path, author, title, _lang in units:
+                key = (author or "", title or unit_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(
+                    {
+                        "title": title or os.path.basename(unit_path),
+                        "author": author,
+                    }
+                )
+            return items
+        except Exception:
+            return []
+
+    def _guess_content_path(torrent: dict) -> str | None:
+        path = torrent.get("content_path") or ""
+        if not path and torrent.get("save_path") and torrent.get("name"):
+            path = os.path.join(torrent.get("save_path"), torrent.get("name"))
+        return path if path and os.path.exists(path) else None
+
     # 2. ALSO fetch items from DB that are actively being processed by Narrarr but NOT in qB
     # We only show items that are beyond 'pending' and 'download_initiated'
     # (e.g. 'generating_metadata', 'organizing', etc.)
@@ -223,6 +259,9 @@ async def active_downloads(
 
         book = books.get(asin) if asin else None
         req = requests.get(asin) if asin else None
+        if req and req.collection:
+            collection_flag = True
+            collection_label = collection_label or req.collection_label
 
         # Guard: If request is marked completed in DB, skip showing it in downloading tab
         if req and req.processing_status == "completed":
@@ -281,6 +320,9 @@ async def active_downloads(
                 "logs": logs,
                 "collection": collection_flag,
                 "collection_label": collection_label,
+                "collection_items": _infer_collection_items(
+                    _guess_content_path(t) if collection_flag else ""
+                ),
             }
         )
 
@@ -319,8 +361,9 @@ async def active_downloads(
                         None if user.is_admin() else user.username,
                     )
                 ],
-                "collection": False,
-                "collection_label": None,
+                "collection": req.collection,
+                "collection_label": req.collection_label,
+                "collection_items": [],
             }
         )
 

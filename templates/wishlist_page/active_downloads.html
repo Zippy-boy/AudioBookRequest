@@ -29,6 +29,21 @@
           <span class="text-[10px] font-semibold opacity-60 line-clamp-1" title="{{ dl.collection_label }}">{{ dl.collection_label }}</span>
           {% endif %}
         </div>
+        {% if dl.collection_items %}
+        <div class="mt-2 space-y-1">
+          <div class="text-[10px] uppercase font-black tracking-widest opacity-40">Books in collection</div>
+          <div class="space-y-1 max-h-28 overflow-auto pr-1">
+            {% for item in dl.collection_items %}
+            <div class="flex items-center gap-2 text-[11px] leading-tight">
+              <span class="line-clamp-1 font-semibold" title="{{ item.title }}">{{ item.title }}</span>
+              {% if item.author %}
+              <span class="opacity-50 text-[10px] line-clamp-1">by {{ item.author }}</span>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
         {% endif %}
       </div>
 

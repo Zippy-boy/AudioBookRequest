@@ -77,12 +77,17 @@ async def create_request(
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    if library_contains_asin(session, asin):
-        raise HTTPException(
-            status_code=400, detail="Book already exists in library folder"
-        )
+    existing_library_book = session.get(Audiobook, asin)
+    in_library_on_disk = library_contains_asin(session, asin)
 
-    if book.downloaded:
+    if in_library_on_disk:
+        # Allow re-requests when the user deleted it from the app (downloaded=False)
+        if not (existing_library_book and not existing_library_book.downloaded):
+            raise HTTPException(
+                status_code=400, detail="Book already exists in library folder"
+            )
+
+    if existing_library_book and existing_library_book.downloaded:
         raise HTTPException(status_code=400, detail="Book already in library")
 
     if not session.exec(
