@@ -259,7 +259,7 @@ async def active_downloads(
 
         book = books.get(asin) if asin else None
         req = requests.get(asin) if asin else None
-        if req and req.collection:
+        if req and hasattr(req, "collection") and req.collection:
             collection_flag = True
             collection_label = collection_label or req.collection_label
 
@@ -361,8 +361,8 @@ async def active_downloads(
                         None if user.is_admin() else user.username,
                     )
                 ],
-                "collection": req.collection,
-                "collection_label": req.collection_label,
+                "collection": getattr(req, "collection", False),
+                "collection_label": getattr(req, "collection_label", None),
                 "collection_items": [],
             }
         )

@@ -56,6 +56,10 @@ class LibraryReconciler(LibraryScanner):
             
             async with semaphore:
                 with next(get_session()) as session:
+                    import_session = session.get(LibraryImportSession, self.import_session_id)
+                    if not import_session:
+                        logger.warning("Reconciler: Import session missing, skipping unit", path=path)
+                        return
                     # Check if this ASIN is already in DB and marked downloaded
                     if asin:
                         existing = session.get(Audiobook, asin)

@@ -325,7 +325,6 @@ async def process_completed_download(
             )
             from app.internal.indexers.configuration import create_valued_configuration
             from app.internal.book_search import _normalize_series
-            import aiohttp
 
             async with aiohttp.ClientSession() as client_session:
                 config_obj = await MamIndexer.get_configurations(
@@ -403,8 +402,6 @@ async def process_completed_download(
         session.add(book_request)
         session.commit()
         try:
-            import aiohttp
-
             async with aiohttp.ClientSession() as client_session:
                 async with client_session.get(book.cover_image) as resp:
                     if resp.status == 200:
