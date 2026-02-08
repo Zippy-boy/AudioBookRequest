@@ -1,147 +1,25 @@
-from typing import Awaitable, Callable
-from urllib.parse import quote_plus, urlencode
+from fastapi import FastAPI
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
-from sqlalchemy import func
-from sqlmodel import select
-
-from app.internal.auth.authentication import RequiresLoginException
-from app.internal.auth.config import auth_config, initialize_force_login_type
-from app.internal.auth.session_middleware import (
-    DynamicSessionMiddleware,
-    middleware_linker,
-)
-from app.internal.auth.oidc_config import InvalidOIDCConfiguration
-from app.internal.book_search import clear_old_book_caches
 from app.internal.env_settings import Settings
-from app.internal.models import User
-from app.routers import (
-    api,
-    auth,
-    recommendations,
-    root,
-    search,
-    settings,
-    wishlist,
-    library,
-)
-from app.util.db import get_session
-from app.util.fetch_js import fetch_scripts
-from app.util.redirect import BaseUrlRedirectResponse
-from app.util.templates import templates
-from app.util.toast import ToastException
-from app.util.time import Second
 from app.internal.processing.monitor import start_monitor
-
-# intialize js dependencies or throw an error if not in debug mode
-fetch_scripts(Settings().app.debug)
-
-with next(get_session()) as session:
-    auth_secret = auth_config.get_auth_secret(session)
-    access_token_expiry = auth_config.get_access_token_expiry_minutes(session)
-    initialize_force_login_type(session)
-    clear_old_book_caches(session)
-
+from app.routers import api
+from app.internal.system_user import get_system_user
+from app.util.db import get_session
 
 app = FastAPI(
     title="Narrarr",
     version=Settings().app.version,
-    description="API for Narrarr",
-)
-
-app.add_middleware(
-    DynamicSessionMiddleware,
-    secret_key=auth_secret,
-    linker=middleware_linker,
-    max_age=Second(access_token_expiry * 60),
+    description="API for Narrarr (headless)",
 )
 
 
 @app.on_event("startup")
 async def startup_event():
+    # Ensure system user exists for internal operations
+    with next(get_session()) as session:
+        get_system_user(session)
     await start_monitor()
 
 
-app.include_router(auth.router, include_in_schema=False)
-app.include_router(recommendations.router, include_in_schema=False)
-app.include_router(root.router, include_in_schema=False)
-app.include_router(search.router, include_in_schema=False)
-app.include_router(settings.router, include_in_schema=False)
-app.include_router(wishlist.router, include_in_schema=False)
-app.include_router(library.router, include_in_schema=False)
-# api router under /api
+# API router under /api
 app.include_router(api.router)
-
-
-@app.exception_handler(RequiresLoginException)
-async def redirect_to_login(request: Request, exc: RequiresLoginException):
-    if request.method == "GET":
-        params: dict[str, str] = {}
-        if exc.detail:
-            params["error"] = exc.detail
-        path = request.url.path
-        if path != "/" and not path.startswith("/login"):
-            params["redirect_uri"] = path
-        return BaseUrlRedirectResponse("/login?" + urlencode(params))
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-@app.exception_handler(InvalidOIDCConfiguration)
-async def redirect_to_invalid_oidc(request: Request, exc: InvalidOIDCConfiguration):
-    _ = request
-    path = "/auth/invalid-oidc"
-    if exc.detail:
-        path += f"?error={quote_plus(exc.detail)}"
-    return BaseUrlRedirectResponse(path)
-
-
-@app.exception_handler(ToastException)
-async def raise_toast(request: Request, exc: ToastException):
-    context: dict[str, Request | str] = {"request": request}
-    if exc.type == "error":
-        context["toast_error"] = exc.message
-    elif exc.type == "success":
-        context["toast_success"] = exc.message
-    elif exc.type == "info":
-        context["toast_info"] = exc.message
-
-    return templates.TemplateResponse(
-        "base.html",
-        context,
-        status_code=200,
-        block_name="toast_block",
-        headers={"HX-Retarget": "#toast-block", "HX-Reswap": "innerHTML"}
-        | ({"HX-Refresh": "true"} if exc.force_refresh else {}),
-    )
-
-
-@app.middleware("http")
-async def redirect_to_init(
-    request: Request,
-    call_next: Callable[[Request], Awaitable[StreamingResponse]],
-):
-    """
-    Initial redirect if no user exists. We force the user to create a new login
-    """
-    if (
-        request.url.path != "/init"
-        and not request.url.path.startswith("/static")
-        and request.method == "GET"
-    ):
-        with next(get_session()) as session:
-            user_count = session.exec(select(func.count()).select_from(User)).one()
-            if user_count == 0:
-                return BaseUrlRedirectResponse("/init")
-    elif request.url.path.startswith("/init"):
-        with next(get_session()) as session:
-            user_count = session.exec(select(func.count()).select_from(User)).one()
-            if user_count != 0:
-                return BaseUrlRedirectResponse("/")
-    response = await call_next(request)
-    return response

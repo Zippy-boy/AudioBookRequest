@@ -1,12 +1,10 @@
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, Response, Security
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.internal.auth.authentication import APIKeyAuth, DetailedUser
-from app.internal.models import GroupEnum
 from app.internal.prowlarr.indexer_categories import indexer_categories
 from app.internal.prowlarr.prowlarr import IndexerResponse, get_indexers
 from app.internal.prowlarr.util import flush_prowlarr_cache, prowlarr_config
@@ -31,7 +29,6 @@ class ProwlarrSettings(BaseModel):
 async def get_prowlarr_settings(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     indexers = await get_indexers(session, client_session)
     return ProwlarrSettings(
@@ -54,7 +51,6 @@ class UpdateApiKey(BaseModel):
 def update_prowlarr_api_key(
     body: UpdateApiKey,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     prowlarr_config.set_api_key(session, body.api_key)
     flush_prowlarr_cache()
@@ -69,7 +65,6 @@ class UpdateBaseUrl(BaseModel):
 def update_prowlarr_base_url(
     body: UpdateBaseUrl,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     prowlarr_config.set_base_url(session, body.base_url)
     flush_prowlarr_cache()
@@ -84,7 +79,6 @@ class UpdateCategories(BaseModel):
 def update_indexer_categories(
     body: UpdateCategories,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     prowlarr_config.set_categories(session, body.categories)
     flush_prowlarr_cache()
@@ -99,7 +93,6 @@ class UpdateDefaultLanguage(BaseModel):
 def update_default_language(
     body: UpdateDefaultLanguage,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     prowlarr_config.set_default_language(session, body.language)
     flush_prowlarr_cache()
@@ -114,7 +107,6 @@ class UpdateSearchTemplate(BaseModel):
 def update_search_template(
     body: UpdateSearchTemplate,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     prowlarr_config.set_search_template(session, body.template)
     flush_prowlarr_cache()

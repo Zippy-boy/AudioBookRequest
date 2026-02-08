@@ -2,17 +2,11 @@ import json
 import uuid
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Security, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app.internal.auth.authentication import APIKeyAuth, DetailedUser
-from app.internal.models import (
-    EventEnum,
-    GroupEnum,
-    Notification,
-    NotificationBodyTypeEnum,
-)
+from app.internal.models import EventEnum, Notification, NotificationBodyTypeEnum
 from app.internal.notifications import send_notification
 from app.util.db import get_session
 
@@ -32,7 +26,6 @@ class NotificationRequest(BaseModel):
 @router.get("", response_model=list[Notification])
 def list_notifications(
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     return session.exec(select(Notification)).all()
 
@@ -113,7 +106,6 @@ def _upsert_notification(
 def create_notification(
     body: NotificationRequest,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     return _upsert_notification(
         notification_id=body.id,
@@ -131,7 +123,6 @@ def create_notification(
 def delete_notification(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     notif = session.get(Notification, id)
     if not notif:
@@ -146,7 +137,6 @@ def delete_notification(
 async def test_notification_id(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     notif = session.get(Notification, id)
     if not notif:
@@ -164,7 +154,6 @@ async def test_notification_id(
 def toggle_notification(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     notif = session.get(Notification, id)
     if not notif:
@@ -181,7 +170,6 @@ def toggle_notification(
 async def test_notification(
     body: NotificationRequest,
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     headers_json = _validate_headers(body.headers)
     try:
