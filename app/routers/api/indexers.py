@@ -2,21 +2,37 @@ import json
 from typing import Annotated, cast
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
-from sqlmodel import Session
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, Security
 
+from app.internal.auth.authentication import APIKeyAuth, DetailedUser
 from app.internal.indexers.abstract import SessionContainer
 from app.internal.indexers.indexer_util import (
     get_indexer_contexts,
     update_single_indexer,
 )
-from app.internal.models import BaseSQLModel
+from app.internal.models import BaseSQLModel, GroupEnum
 from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.log import logger
 from app.util.toast import ToastException
 
 router = APIRouter(prefix="/indexers", tags=["Indexers"])
+
+
+async def _read_json_object(request: Request) -> dict[str, object]:
+    try:
+        body = await request.json()  # pyright: ignore[reportAny]
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+    for key in body.keys():  # pyright: ignore[reportUnknownVariableType]
+        if not isinstance(key, str):
+            raise HTTPException(
+                status_code=400, detail="All keys in the body must be strings"
+            )
+    return cast(dict[str, object], body)
 
 
 @router.patch("/{indexer}")
@@ -27,6 +43,7 @@ async def update_indexer(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     """
     Update values of an indexer. The body needs to be a key-value mapping of the configuration values to update.
@@ -35,15 +52,7 @@ async def update_indexer(
     """
 
     try:
-        body = await request.json()  # pyright: ignore[reportAny]
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="Body must be a JSON object")
-        for key in body.keys():  # pyright: ignore[reportUnknownVariableType]
-            if not isinstance(key, str):
-                raise HTTPException(
-                    status_code=400, detail="All keys in the body must be strings"
-                )
-        body = cast(dict[str, object], body)
+        body = await _read_json_object(request)
         await update_single_indexer(
             indexer,
             body,
@@ -54,8 +63,6 @@ async def update_indexer(
     except ToastException as e:
         logger.error(f"Error updating indexer {indexer}: {e.message}")
         raise HTTPException(status_code=400, detail=e.message)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
     return Response(status_code=204)
 
 
@@ -73,6 +80,7 @@ class StringConfigurationResponse(BaseSQLModel):
 async def get_indexer_configurations(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     contexts = await get_indexer_contexts(
         SessionContainer(session=session, client_session=client_session),

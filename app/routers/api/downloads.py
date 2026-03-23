@@ -8,12 +8,14 @@ from fastapi import (
     HTTPException,
     Query,
     Response,
+    Security,
 )
 from pydantic import BaseModel
 from sqlmodel import Session, col, delete, select
 
 from app.internal.audiobookshelf.client import background_abs_trigger_scan
 from app.internal.audiobookshelf.config import abs_config
+from app.internal.auth.authentication import APIKeyAuth, DetailedUser
 from app.internal.book_search import (
     audible_region_type,
     audible_regions,
@@ -21,7 +23,7 @@ from app.internal.book_search import (
     get_region_from_settings,
 )
 from app.internal.library.service import library_contains_asin
-from app.internal.models import Audiobook, AudiobookRequest, User
+from app.internal.models import Audiobook, AudiobookRequest, GroupEnum, User
 from app.internal.prowlarr.prowlarr import start_download
 from app.internal.prowlarr.util import ProwlarrMisconfigured, prowlarr_config
 from app.internal.query import QueryResult, background_start_query, query_sources
@@ -53,23 +55,62 @@ class DownloadJob(BaseModel):
     downloaded: bool = False
 
 
-def _job_view(book: Audiobook, req: AudiobookRequest | None) -> DownloadJob:
-    status = req.processing_status if req else "not_queued"
-    progress = req.download_progress if req else 0.0
+def _job_view(book: Audiobook, request: AudiobookRequest | None) -> DownloadJob:
+    status = request.processing_status if request else "not_queued"
+    progress = request.download_progress if request else 0.0
     return DownloadJob(
         asin=book.asin,
         title=book.title,
         subtitle=book.subtitle,
         status=status,
         progress=progress,
-        torrent_hash=req.torrent_hash if req else None,
-        download_state=req.download_state if req else None,
+        torrent_hash=request.torrent_hash if request else None,
+        download_state=request.download_state if request else None,
         downloaded=bool(book.downloaded),
     )
 
 
 def _get_request(session: Session, asin: str) -> AudiobookRequest | None:
-    return session.exec(select(AudiobookRequest).where(AudiobookRequest.asin == asin)).first()
+    return session.exec(
+        select(AudiobookRequest).where(AudiobookRequest.asin == asin)
+    ).first()
+
+
+def _resolve_region(region: audible_region_type | None) -> audible_region_type:
+    resolved = region or get_region_from_settings()
+    if audible_regions.get(resolved) is None:
+        raise HTTPException(status_code=400, detail="Invalid region")
+    return resolved
+
+
+def _reset_request_state(request: AudiobookRequest) -> None:
+    request.processing_status = "pending"
+    request.download_progress = 0.0
+    request.torrent_hash = None
+    request.download_state = None
+
+
+def _resolve_delete_files(delete_files: bool, delete_files_q: bool | None) -> bool:
+    return delete_files_q if delete_files_q is not None else delete_files
+
+
+def _get_cached_source(
+    session: Session, asin: str, guid: str, indexer_id: int
+):
+    from app.internal.prowlarr.util import prowlarr_source_cache
+    from app.internal.prowlarr.prowlarr import build_prowlarr_query
+
+    book = session.get(Audiobook, asin)
+    cache_key = build_prowlarr_query(session, book) if book else ""
+    sources = prowlarr_source_cache.get(
+        prowlarr_config.get_source_ttl(session), cache_key
+    )
+    if not sources:
+        return None
+    return next(
+        (s for s in sources if s.guid == guid and s.indexer_id == indexer_id),
+        None,
+    )
 
 
 @router.post("/{asin}", status_code=201, response_model=DownloadJob)
@@ -77,14 +118,12 @@ async def create_download(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     background_task: BackgroundTasks,
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     asin: str,
     region: audible_region_type | None = None,
 ) -> DownloadJob:
     user = get_system_user(session)
-    if region is None:
-        region = get_region_from_settings()
-    if audible_regions.get(region) is None:
-        raise HTTPException(status_code=400, detail="Invalid region")
+    region = _resolve_region(region)
 
     book = await get_book_by_asin(client_session, asin, region)
     if not book:
@@ -113,10 +152,7 @@ async def create_download(
 
     if existing_request:
         # Reset stale/old request so it can download again
-        existing_request.processing_status = "pending"
-        existing_request.download_progress = 0.0
-        existing_request.torrent_hash = None
-        existing_request.download_state = None
+        _reset_request_state(existing_request)
         session.add(existing_request)
         session.commit()
         log_request_event(
@@ -155,6 +191,7 @@ async def create_download(
 @router.get("", response_model=list[DownloadJob])
 async def list_downloads(
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     filter: Literal["all", "downloaded", "not_downloaded"] = "all",
 ):
     statement = select(AudiobookRequest, Audiobook).join(
@@ -166,33 +203,34 @@ async def list_downloads(
         statement = statement.where(Audiobook.downloaded.is_(False))
 
     rows = session.exec(statement).all()
-    return [_job_view(book, req) for req, book in rows]
+    return [_job_view(book, request) for request, book in rows]
 
 
 @router.get("/{asin}", response_model=DownloadJob)
 async def get_download(
     asin: str,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     book = session.get(Audiobook, asin)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    req = _get_request(session, asin)
-    return _job_view(book, req)
+    request = _get_request(session, asin)
+    return _job_view(book, request)
 
 
 @router.delete("/{asin}")
 async def delete_download(
     asin: str,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     delete_files: bool = False,
     delete_files_q: bool | None = Query(default=None),
 ):
     from app.internal.download_clients.qbittorrent import QbittorrentClient
     from app.internal.download_clients.config import download_client_config
 
-    if delete_files_q is not None:
-        delete_files = delete_files_q
+    delete_files = _resolve_delete_files(delete_files, delete_files_q)
 
     # Try to delete from qBittorrent if enabled
     if download_client_config.get_qbit_enabled(session):
@@ -232,6 +270,7 @@ async def refresh_source(
     asin: str,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     force_refresh: bool = False,
 ):
     user = get_system_user(session)
@@ -250,6 +289,7 @@ async def list_sources(
     asin: str,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
     only_cached: bool = False,
     page: int = 0,
 ):
@@ -277,6 +317,7 @@ async def start_download_source(
     body: DownloadSourceBody,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     user = get_system_user(session)
     book_request = session.exec(
@@ -294,26 +335,13 @@ async def start_download_source(
         )
 
     try:
-        from app.internal.prowlarr.util import prowlarr_source_cache
-        from app.internal.prowlarr.prowlarr import build_prowlarr_query
-
-        book = session.get(Audiobook, asin)
-        cache_key = build_prowlarr_query(session, book) if book else ""
-        sources = prowlarr_source_cache.get(
-            prowlarr_config.get_source_ttl(session), cache_key
+        source = _get_cached_source(
+            session=session,
+            asin=asin,
+            guid=body.guid,
+            indexer_id=body.indexer_id,
         )
-        source = None
-        if sources:
-            source = next(
-                (
-                    s
-                    for s in sources
-                    if s.guid == body.guid and s.indexer_id == body.indexer_id
-                ),
-                None,
-            )
-
-        if not source:
+        if source is None:
             raise HTTPException(
                 status_code=404, detail="Source not found in cache for this book."
             )
@@ -348,6 +376,7 @@ async def start_auto_download_endpoint(
     asin: str,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     user = get_system_user(session)
     log_request_event(

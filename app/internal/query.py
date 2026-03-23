@@ -35,6 +35,36 @@ async def _try_acquire(lock: asyncio.Lock) -> bool:
         return False
 
 
+def _get_book_or_404(session: Session, asin: str) -> Audiobook:
+    book = session.exec(select(Audiobook).where(Audiobook.asin == asin)).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+
+
+def _get_auto_download_request(
+    session: Session, asin: str, requester: User
+) -> AudiobookRequest:
+    request = session.exec(
+        select(AudiobookRequest).where(
+            AudiobookRequest.asin == asin,
+            AudiobookRequest.downloaded.is_(False),
+            AudiobookRequest.user_username == requester.username,
+        )
+    ).first()
+    if not request:
+        logger.warning(
+            "No active AudiobookRequest found for auto-download",
+            asin=asin,
+            username=requester.username,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="No active AudiobookRequest found for auto-download.",
+        )
+    return request
+
+
 class QueryResult(pydantic.BaseModel):
     sources: list[ProwlarrSource] | None
     book: Audiobook
@@ -60,9 +90,7 @@ async def query_sources(
     page: int = 0,
     page_size: int = 50,
 ) -> QueryResult:
-    book = session.exec(select(Audiobook).where(Audiobook.asin == asin)).first()
-    if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+    book = _get_book_or_404(session, asin)
 
     lock = _get_query_lock(asin)
     if not await _try_acquire(lock):
@@ -100,25 +128,7 @@ async def query_sources(
 
         # Handle auto-download
         if start_auto_download and len(ranked) > 0:
-            book_request = session.exec(
-                select(AudiobookRequest).where(
-                    AudiobookRequest.asin == asin,
-                    AudiobookRequest.downloaded.is_(False),
-                    AudiobookRequest.user_username == requester.username,
-                )
-            ).first()
-
-            if not book_request:
-                logger.warning(
-                    "No active AudiobookRequest found for auto-download",
-                    asin=asin,
-                    username=requester.username,
-                )
-                raise HTTPException(
-                    status_code=404,
-                    detail="No active AudiobookRequest found for auto-download.",
-                )
-
+            book_request = _get_auto_download_request(session, asin, requester)
             success = await start_download(  # start_download now returns bool
                 session=session,
                 client_session=client_session,

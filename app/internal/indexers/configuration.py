@@ -37,8 +37,7 @@ class Configurations(BaseModel):
     to the setup method of the indexer and input
     fields will be generated for them on the frontend.
     """
-
-    pass
+    ...
 
 
 class ValuedConfigurations:
@@ -46,23 +45,44 @@ class ValuedConfigurations:
     Field names need to be unique across all indexers
     and match up with the fields of the `Configurations` object.
     """
-
-    pass
+    ...
 
 
 class ConfigurationException(ValueError):
-    pass
+    ...
 
 
 class MissingRequiredException(ConfigurationException):
-    pass
+    ...
 
 
 class InvalidTypeException(ConfigurationException):
-    pass
+    ...
 
 
 indexer_configuration_cache = StringConfigCache[str]()
+
+
+def _coerce_config_value(
+    key: str, config: IndexerConfiguration[Any], raw_value: str | None
+):
+    if raw_value is None:
+        return None
+    if config.type_ is str:
+        return raw_value
+    if config.type_ is int:
+        try:
+            return int(raw_value)
+        except ValueError:
+            raise InvalidTypeException(f"Configuration {key} must be an integer")
+    if config.type_ is float:
+        try:
+            return float(raw_value)
+        except ValueError:
+            raise InvalidTypeException(f"Configuration {key} must be a float")
+    if config.type_ is bool:
+        return raw_value == "1"
+    return raw_value
 
 
 def create_valued_configuration(
@@ -93,21 +113,7 @@ def create_valued_configuration(
         if check_required and value.required and config_value is None:
             raise MissingRequiredException(f"Configuration {key} is required")
 
-        if config_value is None:
-            setattr(valued, key, None)
-        elif value.type_ is str:
-            setattr(valued, key, config_value)
-        elif value.type_ is int:
-            try:
-                setattr(valued, key, int(config_value))
-            except ValueError:
-                raise InvalidTypeException(f"Configuration {key} must be an integer")
-        elif value.type_ is float:
-            try:
-                setattr(valued, key, float(config_value))
-            except ValueError:
-                raise InvalidTypeException(f"Configuration {key} must be a float")
-        elif value.type_ is bool:
-            setattr(valued, key, config_value == "1")
+        coerced_value = _coerce_config_value(key, value, config_value)
+        setattr(valued, key, coerced_value)
 
     return valued

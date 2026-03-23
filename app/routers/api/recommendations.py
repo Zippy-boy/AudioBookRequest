@@ -26,6 +26,9 @@ from app.util.db import get_session
 
 router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
+def _resolve_region(region: audible_region_type | None) -> audible_region_type:
+    return region or get_region_from_settings()
+
 
 @router.get("/user", response_model=UserSimsRecommendation)
 async def get_user_recommendations(
@@ -91,8 +94,7 @@ async def get_fallback_recommendations(
 ) -> list[Audiobook]:
     """Get fallback popular recommendations from Audible search. Does not take into account user history or preference."""
 
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    audible_region = _resolve_region(audible_region)
 
     popular_search_terms = [
         "bestseller",
@@ -123,8 +125,7 @@ async def get_category_recommendations(
 ) -> dict[str, list[Audiobook]]:
     """Get recommendations by popular categories from Audible search."""
 
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    audible_region = _resolve_region(audible_region)
 
     return await list_category_audible_books(
         session=session,
@@ -144,8 +145,7 @@ async def get_popular_authors_recommendations(
     audible_region: audible_region_type | None = None,
     personal_favorites: bool = True,
 ) -> list[Audiobook]:
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    audible_region = _resolve_region(audible_region)
 
     author_narrators = get_most_popular_authors(
         session=session,
@@ -172,8 +172,7 @@ async def get_popular_narrators_recommendations(
     audible_region: audible_region_type | None = None,
     personal_favorites: bool = True,
 ) -> list[Audiobook]:
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    audible_region = _resolve_region(audible_region)
 
     author_narrators = get_most_popular_authors(
         session=session,

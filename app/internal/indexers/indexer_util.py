@@ -77,6 +77,15 @@ async def get_indexer_contexts(
     return contexts
 
 
+def _find_context(
+    contexts: list[IndexerContext], indexer_select: str
+) -> IndexerContext | None:
+    for context in contexts:
+        if context.indexer.name == indexer_select:
+            return context
+    return None
+
+
 async def update_single_indexer(
     indexer_select: str,
     values: Mapping[str, object],
@@ -95,11 +104,7 @@ async def update_single_indexer(
         session_container, check_required=False, return_disabled=True
     )
 
-    updated_context: IndexerContext | None = None
-    for context in contexts:
-        if context.indexer.name == indexer_select:
-            updated_context = context
-            break
+    updated_context = _find_context(contexts, indexer_select)
 
     if not updated_context:
         raise ValueError("Indexer not found")

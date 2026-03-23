@@ -1,0 +1,211 @@
+2026-03-23 19:15:07 [warning  ] Bundled web UI not mounted; build directory missing expected_paths=['C:\\Users\\Zippy\\Documents\\GitHub\\AudioBookRequest\\app\\static\\ui', 'C:\\Users\\Zippy\\Documents\\GitHub\\AudioBookRequest\\NarrarrUI\\build\\web']
+2026-03-23 19:15:07 [info     ] Generated UI API key for auto-config user=system
+2026-03-23 19:15:07 [info     ] Monitor: Starting download monitor loop
+INFO:     127.0.0.1:48957 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5174 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5174 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:8170 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5174 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50661 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12121 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:17609 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12121 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:18219 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12121 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:20868 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47552 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:47553 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47552 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47552 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:22396 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47552 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:22397 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47552 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59736 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:27926 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:26161 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:26162 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:16761 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:16762 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27925 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:16924 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15849 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53121 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15849 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15849 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:15849 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15849 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:14889 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:26759 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51688 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:26759 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:26759 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:26759 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:26759 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:6448 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27337 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27337 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27337 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:27337 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:27337 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:8027 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:43305 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:41827 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:43305 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43305 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:62134 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53223 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53223 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53223 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:53223 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53223 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:34457 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57141 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57141 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57141 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57141 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57141 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:16549 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57440 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57440 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57440 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57440 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57440 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:14084 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6892 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6892 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6892 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:6892 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6892 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61843 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4300 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4300 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4300 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:4300 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4300 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:63135 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41218 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41218 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41218 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:41218 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41218 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:20211 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21703 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21703 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21703 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:21703 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21703 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:21252 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21253 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21254 - "GET /api/auth/me HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:21269 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21271 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1396 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:45180 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:17286 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:45180 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45180 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:1524 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28086 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28086 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28086 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:28086 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28086 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:36852 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21459 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21459 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21459 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:21459 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:21459 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:52134 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57400 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57400 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57400 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57400 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57400 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:9987 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28917 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28917 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28917 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:28917 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:28917 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:48907 - "OPTIONS /api/settings/prowlarr/base-url HTTP/1.1" 200 OK
+2026-03-23 21:49:46 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:48907 - "PUT /api/settings/prowlarr/base-url HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:48907 - "OPTIONS /api/settings/prowlarr/api-key HTTP/1.1" 200 OK
+2026-03-23 21:49:46 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:48907 - "PUT /api/settings/prowlarr/api-key HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:48907 - "OPTIONS /api/settings/prowlarr/default-language HTTP/1.1" 200 OK
+2026-03-23 21:49:46 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:48907 - "PUT /api/settings/prowlarr/default-language HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:48907 - "OPTIONS /api/settings/prowlarr/search-template HTTP/1.1" 200 OK
+2026-03-23 21:49:46 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:48907 - "PUT /api/settings/prowlarr/search-template HTTP/1.1" 204 No Content
+2026-03-23 21:51:52 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:3615 - "PUT /api/settings/prowlarr/base-url HTTP/1.1" 204 No Content
+2026-03-23 21:51:52 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:3615 - "PUT /api/settings/prowlarr/api-key HTTP/1.1" 204 No Content
+2026-03-23 21:51:52 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:3615 - "PUT /api/settings/prowlarr/default-language HTTP/1.1" 204 No Content
+2026-03-23 21:51:52 [info     ] Flushing prowlarr caches      
+INFO:     127.0.0.1:3615 - "PUT /api/settings/prowlarr/search-template HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:23985 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33602 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:17517 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:33602 - "OPTIONS /api/settings/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33602 - "GET /api/settings/stats HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:33674 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33602 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "OPTIONS /api/setup HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /api/setup HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49985 - "OPTIONS /api/settings/prowlarr HTTP/1.1" 200 OK
+INFO:     127.0.0.1:24276 - "OPTIONS /api/settings/download-client HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48290 - "OPTIONS /api/settings/media-management HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2805 - "OPTIONS /api/settings/audiobookshelf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17517 - "GET /api/auth/status HTTP/1.1" 200 OK
+2026-03-23 21:57:18 [info     ] Fetching indexers from Prowlarr url=http://192.168.1.141:9696/api/v1/indexer
+INFO:     127.0.0.1:24276 - "GET /api/settings/audiobookshelf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48290 - "GET /api/settings/download-client HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2805 - "GET /api/settings/media-management HTTP/1.1" 200 OK
+2026-03-23 21:57:18 [info     ] Successfully fetched indexers from Prowlarr count=29
+INFO:     127.0.0.1:4312 - "GET /api/settings/prowlarr HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11501 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18806 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3204 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18806 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18806 - "GET /api/setup HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:20425 - "GET /api/settings/prowlarr HTTP/1.1" 200 OK
+INFO:     127.0.0.1:23833 - "GET /api/settings/audiobookshelf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18806 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36674 - "GET /api/settings/download-client HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35757 - "GET /api/settings/media-management HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2109 - "GET /api/settings/prowlarr HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51882 - "GET /api/settings/audiobookshelf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:22965 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:20942 - "GET /api/settings/media-management HTTP/1.1" 200 OK
+INFO:     127.0.0.1:25393 - "GET /api/settings/download-client HTTP/1.1" 200 OK

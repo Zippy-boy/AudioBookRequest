@@ -10,7 +10,9 @@ from app.internal.models import Audiobook
 from app.internal.indexers.mam_models import _Result
 
 
-def _get_series_info(series_list: list[str] | None, series_index: str | None) -> tuple[str | None, str | None]:
+def _get_series_info(
+    series_list: list[str] | None, series_index: str | None
+) -> tuple[str | None, str | None]:
     if not series_list:
         return None, series_index
     series_name = series_list[0]
@@ -19,6 +21,11 @@ def _get_series_info(series_list: list[str] | None, series_index: str | None) ->
         series_name = base.strip()
         series_index = idx.strip() or None
     return series_name, series_index
+
+
+def _write_text_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
 
 
 async def generate_abs_metadata(
@@ -72,8 +79,7 @@ async def generate_opf_metadata(
         opf_content = generate_opf_basic(book)
 
     file_path = os.path.join(dest_path, "metadata.opf")
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(opf_content)
+    _write_text_file(file_path, opf_content)
 
 
 def generate_opf_basic(book: Audiobook) -> str:

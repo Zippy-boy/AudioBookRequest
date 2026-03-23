@@ -25,7 +25,7 @@ class DBSettings(BaseModel):
 
 class ApplicationSettings(BaseModel):
     debug: bool = False
-    openapi_enabled: bool = False
+    openapi_enabled: bool = True
     config_dir: str = "/config"
     port: int = 8000
     version: str = "local"
@@ -44,12 +44,39 @@ class ApplicationSettings(BaseModel):
     init_root_username: str = ""
     init_root_password: str = ""
 
+    cors_origins: list[str] = ["*"]
+    """Comma-separated list of allowed CORS origins. Defaults to * for external UIs."""
+
+    cors_allow_credentials: bool = False
+    """Whether to allow cookies/credentials on CORS requests."""
+
+    cors_allow_methods: list[str] = ["*"]
+    """HTTP methods allowed for CORS requests."""
+
+    cors_allow_headers: list[str] = ["*"]
+    """Headers allowed for CORS requests."""
+
+    force_setup_wizard: bool = False
+    """Forces the setup wizard to remain required until this flag is unset."""
+
     @field_validator("version")
     @classmethod
     def normalize_version(cls, value: str) -> str:
         if not value or not str(value).strip():
             return "local"
         return str(value).strip()
+
+    @field_validator(
+        "cors_origins", "cors_allow_methods", "cors_allow_headers", mode="before"
+    )
+    @classmethod
+    def split_csv(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            parts = [v.strip() for v in value.split(",") if v.strip()]
+            return parts or ["*"]
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        return ["*"]
 
     def get_force_login_type(self) -> LoginTypeEnum | None:
         if self.force_login_type.strip():

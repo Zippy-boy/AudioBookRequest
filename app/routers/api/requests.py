@@ -12,7 +12,7 @@ from fastapi import (
     Security,
     Response,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, asc, col, select, delete
 
 from app.internal.audiobookshelf.client import background_abs_trigger_scan
@@ -23,6 +23,7 @@ from app.internal.book_search import (
     audible_region_type,
     get_region_from_settings,
     audible_regions,
+    store_new_books,
 )
 from app.internal.library.service import library_contains_asin
 from app.internal.models import (
@@ -59,23 +60,41 @@ class DownloadSourceBody(BaseModel):
     collection_label: str | None = None
 
 
-@router.post("/{asin}", status_code=201)
-async def create_request(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(APIKeyAuth())],
+def _resolve_region(region: audible_region_type | None) -> audible_region_type:
+    resolved = region or get_region_from_settings()
+    if audible_regions.get(resolved) is None:
+        raise HTTPException(status_code=400, detail="Invalid region")
+    return resolved
+
+
+RequestStatus = Literal[
+    "created",
+    "reopened",
+    "already_in_library",
+    "not_found",
+]
+
+
+class RequestResult(BaseModel):
+    asin: str
+    status: RequestStatus
+    detail: str | None = None
+
+
+async def _create_or_reopen_request(
+    session: Session,
+    client_session: ClientSession,
+    user: DetailedUser,
     background_task: BackgroundTasks,
     asin: str,
-    region: audible_region_type | None = None,
-):
-    if region is None:
-        region = get_region_from_settings()
-    if audible_regions.get(region) is None:
-        raise HTTPException(status_code=400, detail="Invalid region")
-
+    region: audible_region_type,
+) -> RequestResult:
     book = await get_book_by_asin(client_session, asin, region)
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        return RequestResult(asin=asin, status="not_found", detail="Book not found")
+
+    # Ensure the audiobook exists in the DB for FK integrity
+    store_new_books(session, [book])
 
     existing_library_book = session.get(Audiobook, asin)
     in_library_on_disk = library_contains_asin(session, asin)
@@ -83,12 +102,18 @@ async def create_request(
     if in_library_on_disk:
         # Allow re-requests when the user deleted it from the app (downloaded=False)
         if not (existing_library_book and not existing_library_book.downloaded):
-            raise HTTPException(
-                status_code=400, detail="Book already exists in library folder"
+            return RequestResult(
+                asin=asin,
+                status="already_in_library",
+                detail="Book already exists in library folder",
             )
 
     if existing_library_book and existing_library_book.downloaded:
-        raise HTTPException(status_code=400, detail="Book already in library")
+        return RequestResult(
+            asin=asin,
+            status="already_in_library",
+            detail="Book already in library",
+        )
 
     existing_request = session.exec(
         select(AudiobookRequest).where(
@@ -98,10 +123,6 @@ async def create_request(
     ).first()
 
     if existing_request:
-        # If the book isn't downloaded, allow reopening the request instead of blocking
-        if existing_library_book and existing_library_book.downloaded:
-            raise HTTPException(status_code=409, detail="Book already requested")
-
         # Reset stale/old request so user can download again
         existing_request.processing_status = "pending"
         existing_request.download_progress = 0.0
@@ -121,6 +142,7 @@ async def create_request(
             username=user.username,
             asin=asin,
         )
+        status: RequestStatus = "reopened"
     else:
         book_request = AudiobookRequest(asin=asin, user_username=user.username)
         session.add(book_request)
@@ -137,6 +159,7 @@ async def create_request(
             username=user.username,
             asin=asin,
         )
+        status = "created"
 
     background_task.add_task(
         send_all_notifications,
@@ -154,7 +177,84 @@ async def create_request(
             auto_download=True,
         )
 
+    return RequestResult(asin=asin, status=status)
+
+
+@router.post("/{asin}", status_code=201)
+async def create_request(
+    session: Annotated[Session, Depends(get_session)],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    user: Annotated[DetailedUser, Security(APIKeyAuth())],
+    background_tasks: BackgroundTasks,
+    asin: str,
+    region: audible_region_type | None = None,
+):
+    region = _resolve_region(region)
+
+    result = await _create_or_reopen_request(
+        session=session,
+        client_session=client_session,
+        user=user,
+        background_task=background_tasks,
+        asin=asin,
+        region=region,
+    )
+    if result.status == "not_found":
+        raise HTTPException(status_code=404, detail=result.detail or "Book not found")
+    if result.status == "already_in_library":
+        raise HTTPException(
+            status_code=400, detail=result.detail or "Book already in library"
+        )
+
     return Response(status_code=201)
+
+
+class BulkRequestBody(BaseModel):
+    asins: list[str] = Field(min_length=1, max_length=200)
+
+
+class BulkRequestResult(BaseModel):
+    asin: str
+    status: RequestStatus
+    detail: str | None = None
+
+
+@router.post("/bulk", response_model=list[BulkRequestResult])
+async def create_bulk_requests(
+    body: BulkRequestBody,
+    session: Annotated[Session, Depends(get_session)],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    user: Annotated[DetailedUser, Security(APIKeyAuth())],
+    background_tasks: BackgroundTasks,
+    region: audible_region_type | None = None,
+):
+    region = _resolve_region(region)
+
+    normalized = [a.strip() for a in body.asins if a and a.strip()]
+    if not normalized:
+        raise HTTPException(status_code=400, detail="No valid ASINs provided")
+
+    unique_asins = list(dict.fromkeys(normalized))
+
+    results: list[BulkRequestResult] = []
+    for asin in unique_asins:
+        outcome = await _create_or_reopen_request(
+            session=session,
+            client_session=client_session,
+            user=user,
+            background_task=background_tasks,
+            asin=asin,
+            region=region,
+        )
+        results.append(
+            BulkRequestResult(
+                asin=outcome.asin,
+                status=outcome.status,
+                detail=outcome.detail,
+            )
+        )
+
+    return results
 
 
 @router.get("", response_model=list[AudiobookWishlistResult])

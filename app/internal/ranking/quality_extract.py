@@ -70,6 +70,19 @@ audio_file_formats = [
 ]
 
 
+def _infer_file_format_from_title(title: str) -> FileFormat:
+    title_lower = title.lower()
+    if "mp3" in title_lower:
+        return "mp3"
+    if "flac" in title_lower:
+        return "flac"
+    if "m4b" in title_lower:
+        return "m4b"
+    if "audiobook" in title_lower:
+        return "unknown-audio"
+    return "unknown"
+
+
 async def extract_qualities(
     session: Session,
     client_session: ClientSession,
@@ -107,15 +120,7 @@ async def extract_qualities(
 
     # TODO: use the magnet url to fetch the file information
 
-    file_format: FileFormat = "unknown"
-    if "mp3" in source.title.lower():
-        file_format = "mp3"
-    elif "flac" in source.title.lower():
-        file_format = "flac"
-    elif "m4b" in source.title.lower():
-        file_format = "m4b"
-    elif "audiobook" in source.title.lower():
-        file_format = "unknown-audio"
+    file_format = _infer_file_format_from_title(source.title)
 
     return [
         Quality(kbits=8 * source.size / book_seconds / 1000, file_format=file_format)
@@ -146,7 +151,6 @@ def get_torrent_info(data: bytes, book_seconds: int) -> list[Quality]:
     except (tp.InvalidTorrentDataException, ValidationError):
         return []
     actual_sizes: dict[FileFormat, int] = defaultdict(int)
-    file_formats = set[str]()
     for f in parsed.info.files:
         size: int = f.length
         path = f.last_path
@@ -155,16 +159,12 @@ def get_torrent_info(data: bytes, book_seconds: int) -> list[Quality]:
         _, ext = os.path.splitext(path)
         ext = ext.lower()
         if ext == ".flac":
-            file_formats.add("flac")
             actual_sizes["flac"] += size
         elif ext == ".m4b":
-            file_formats.add("m4b")
             actual_sizes["m4b"] += size
         elif ext == ".mp3":
-            file_formats.add("mp3")
             actual_sizes["mp3"] += size
         elif ext in audio_file_formats:
-            file_formats.add("unknown")
             actual_sizes["unknown"] += size
 
     qualities: list[Quality] = []

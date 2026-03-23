@@ -74,6 +74,24 @@ def _normalize_series(series_list: list[str] | None) -> tuple[list[str], str | N
     return ([name] if name else []), index
 
 
+def _parse_genres(
+    genres: list[Union[str, dict[str, Any]]] | None,
+) -> list[str]:
+    if not genres:
+        return []
+
+    parsed: list[str] = []
+    for genre in genres:
+        if isinstance(genre, str):
+            parsed.append(genre)
+            continue
+        if isinstance(genre, dict):
+            name = genre.get("name") or genre.get("label") or genre.get("title")
+            if name:
+                parsed.append(name)
+    return parsed
+
+
 def clear_old_book_caches(session: Session):
     """Deletes outdated cached audiobooks that haven't been requested by anyone"""
     stale_cutoff = datetime.fromtimestamp(time.time() - REFETCH_TTL)
@@ -165,17 +183,7 @@ async def _get_audnexus_book(
         logger.error("Exception while fetching book from Audnexus", asin=asin, error=e)
         return None
 
-    # Safely parse genres which can be strings or dictionaries
-    parsed_genres = []
-    if audnexus_response.genres:
-        for g in audnexus_response.genres:
-            if isinstance(g, str):
-                parsed_genres.append(g)
-            elif isinstance(g, dict):
-                # Try common keys for genre names/labels
-                name = g.get("name") or g.get("label") or g.get("title")
-                if name:
-                    parsed_genres.append(name)
+    parsed_genres = _parse_genres(audnexus_response.genres)
 
     series_list, series_index = _normalize_series(
         [s["name"] for s in audnexus_response.series]
@@ -250,17 +258,7 @@ async def _get_audimeta_book(
         logger.error("Exception while fetching book from Audimeta", asin=asin, error=e)
         return None
 
-    # Safely parse genres which can be strings or dictionaries
-    parsed_genres = []
-    if audimeta_response.genres:
-        for g in audimeta_response.genres:
-            if isinstance(g, str):
-                parsed_genres.append(g)
-            elif isinstance(g, dict):
-                # Try common keys for genre names/labels
-                name = g.get("name") or g.get("label") or g.get("title")
-                if name:
-                    parsed_genres.append(name)
+    parsed_genres = _parse_genres(audimeta_response.genres)
 
     series_list, series_index = _normalize_series(
         [s["name"] for s in audimeta_response.series]

@@ -22,6 +22,12 @@ class WishlistCounts(BaseModel):
     attention: int
 
 
+def _apply_username_filter(statement, username: str | None, column):
+    if username:
+        return statement.where(column == username)
+    return statement
+
+
 def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistCounts:
     """
     If a non-admin user is given, only count requests for that user.
@@ -39,14 +45,11 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
             AudiobookRequest.processing_status == "pending",
         )
     )
-    if username:
-        requests_query = requests_query.where(
-            AudiobookRequest.user_username == username
-        )
+    requests_query = _apply_username_filter(
+        requests_query, username, AudiobookRequest.user_username
+    )
     requests = session.exec(requests_query).one()
 
-    # 2. Count "Downloading" (Actively in qB or being processed)
-    # Using processing_status is faster than hitting qB every time
     # 2. Count "Downloading" (Actively in qB or being processed)
     # Using processing_status is faster than hitting qB every time
     downloading_query = (
@@ -57,10 +60,9 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
             col(AudiobookRequest.processing_status).in_(AudiobookRequest.ACTIVE_DOWNLOAD_STATUSES)
         )
     )
-    if username:
-        downloading_query = downloading_query.where(
-            AudiobookRequest.user_username == username
-        )
+    downloading_query = _apply_username_filter(
+        downloading_query, username, AudiobookRequest.user_username
+    )
     downloading_count = session.exec(downloading_query).one()
 
     # 3. Count "Downloaded" (Is downloaded and has a request)
@@ -69,10 +71,9 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
         .join(AudiobookRequest)
         .where(Audiobook.downloaded.is_(True))
     )
-    if username:
-        downloaded_query = downloaded_query.where(
-            AudiobookRequest.user_username == username
-        )
+    downloaded_query = _apply_username_filter(
+        downloaded_query, username, AudiobookRequest.user_username
+    )
     downloaded = session.exec(downloaded_query).one()
 
     # 4. Count "Manual"
@@ -81,8 +82,9 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
         .select_from(ManualBookRequest)
         .where(col(ManualBookRequest.user_username).is_not(None))
     )
-    if username:
-        manual_query = manual_query.where(ManualBookRequest.user_username == username)
+    manual_query = _apply_username_filter(
+        manual_query, username, ManualBookRequest.user_username
+    )
     manual = session.exec(manual_query).one()
 
     # 5. Count "Needs Attention"
@@ -98,10 +100,9 @@ def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistC
             ),
         )
     )
-    if username:
-        attention_query = attention_query.where(
-            AudiobookRequest.user_username == username
-        )
+    attention_query = _apply_username_filter(
+        attention_query, username, AudiobookRequest.user_username
+    )
     attention = session.exec(attention_query).one()
 
     return WishlistCounts(

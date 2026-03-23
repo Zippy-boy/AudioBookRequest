@@ -31,6 +31,35 @@ def _get_series_parts(book: Audiobook) -> tuple[str | None, str | None]:
         series_index = idx.strip() or None
     return series_name, series_index
 
+
+def _series_display(series_name: str | None, series_index: str | None) -> str | None:
+    if series_name and series_index:
+        return f"{series_name} #{series_index}"
+    return series_name
+
+
+def _format_folder_pattern(
+    pattern: str,
+    author: str,
+    title: str,
+    year: str | int,
+    asin: str,
+    series_display: str | None,
+    series_index: str | None,
+) -> str:
+    try:
+        return pattern.format(
+            author=sanitize_filename(author),
+            title=sanitize_filename(title),
+            year=year,
+            asin=asin,
+            series=sanitize_filename(series_display) if series_display else "No Series",
+            series_index=series_index or "",
+        )
+    except Exception as e:
+        logger.warning("Pattern formatting failed, using default", error=str(e))
+        return f"{sanitize_filename(author)}/{sanitize_filename(title)} ({year})"
+
 def get_book_folder_path(session: Session, book: Audiobook) -> Optional[str]:
     """
     Calculates the relative path for a book based on current patterns.
@@ -43,22 +72,17 @@ def get_book_folder_path(session: Session, book: Audiobook) -> Optional[str]:
     author = book.authors[0] if book.authors else "Unknown"
     series, series_index = _get_series_parts(book)
     year = book.release_date.year if book.release_date else "Unknown"
-    series_display = (
-        f"{series} #{series_index}" if series and series_index else series
-    )
+    series_display = _series_display(series, series_index)
 
-    try:
-        folder_rel_path = pattern.format(
-            author=sanitize_filename(author),
-            title=sanitize_filename(book.title),
-            year=year,
-            asin=book.asin,
-            series=sanitize_filename(series_display) if series_display else "No Series",
-            series_index=series_index or "",
-        )
-    except Exception as e:
-        logger.warning("Pattern formatting failed, using default", error=str(e))
-        folder_rel_path = f"{sanitize_filename(author)}/{sanitize_filename(book.title)} ({year})"
+    folder_rel_path = _format_folder_pattern(
+        pattern=pattern,
+        author=author,
+        title=book.title,
+        year=year,
+        asin=book.asin,
+        series_display=series_display,
+        series_index=series_index,
+    )
 
     if (
         media_management_config.get_use_series_folders(session)
@@ -80,9 +104,7 @@ def generate_audiobook_filename(
     author = book.authors[0] if book.authors else "Unknown"
     series, series_index = _get_series_parts(book)
     year = book.release_date.year if book.release_date else "Unknown"
-    series_display = (
-        f"{series} #{series_index}" if series and series_index else series
-    )
+    series_display = _series_display(series, series_index)
 
     try:
         new_filename = file_pattern.format(

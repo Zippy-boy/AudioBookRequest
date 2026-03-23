@@ -9,13 +9,14 @@ class BaseUrlRedirectResponse(RedirectResponse):
     Redirects while preserving the base URL
     """
 
+    @staticmethod
+    def _is_relative(url: str | URL) -> bool:
+        if isinstance(url, str):
+            return url.startswith("/")
+        return url.path.startswith("/")
+
     def __init__(self, url: str | URL, status_code: int = 302) -> None:
-        if (
-            isinstance(url, str)
-            and url.startswith("/")
-            or isinstance(url, URL)
-            and url.path.startswith("/")
-        ):
+        if self._is_relative(url):
             url = f"{Settings().app.base_url.rstrip('/')}{url}"
         super().__init__(
             url=url,

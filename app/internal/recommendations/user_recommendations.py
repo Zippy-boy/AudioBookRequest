@@ -36,6 +36,13 @@ class _RankedRecommendation(BaseModel):
     rank: int
 
 
+WEIGHT_FREQ = 10.0  # how often candidate appears across seeds
+WEIGHT_RANK = 3.0  # audible average position (lower is better)
+WEIGHT_AUTHOR_PREF = 1.2  # match with user's preferred authors
+WEIGHT_NARR_PREF = 0.6  # match with user's preferred narrators
+WEIGHT_RECENT = 0.5  # slight novelty for newer releases
+
+
 async def get_user_sims_recommendations(
     session: Session,
     client_session: ClientSession,
@@ -116,13 +123,6 @@ async def get_user_sims_recommendations(
         frequency[sim.book.asin] += 1
         positions[sim.book.asin].append(sim.rank)
 
-    # Scoring weights
-    W_FREQ = 10.0  # how often candidate appears across seeds
-    W_RANK = 3.0  # audible average position (lower is better)
-    W_AUTHOR_PREF = 1.2  # match with user's preferred authors
-    W_NARR_PREF = 0.6  # match with user's preferred narrators
-    W_RECENT = 0.5  # slight novelty for newer releases
-
     def _rank_component(avg_idx: float) -> float:
         # Convert average index to a 0..1 score (higher is better)
         return 1.0 / (1.0 + avg_idx)
@@ -150,11 +150,11 @@ async def get_user_sims_recommendations(
         count = frequency[sim.book.asin]
 
         score = (
-            W_FREQ * float(count)
-            + W_RANK * _rank_component(avg_pos)
-            + W_AUTHOR_PREF * _pref_component(sim.book.authors, user_authors)
-            + W_NARR_PREF * _pref_component(sim.book.narrators, user_narrators)
-            + W_RECENT * _recent_component(sim.book)
+            WEIGHT_FREQ * float(count)
+            + WEIGHT_RANK * _rank_component(avg_pos)
+            + WEIGHT_AUTHOR_PREF * _pref_component(sim.book.authors, user_authors)
+            + WEIGHT_NARR_PREF * _pref_component(sim.book.narrators, user_narrators)
+            + WEIGHT_RECENT * _recent_component(sim.book)
         )
 
         # Build human-readable reason

@@ -54,6 +54,29 @@ def build_prowlarr_query(session: Session, book: Audiobook) -> str:
     return rendered or book.title
 
 
+def _build_qbittorrent_tags(
+    audiobook_request: AudiobookRequest,
+    collection: bool,
+    collection_label: str | None,
+) -> list[str]:
+    tags = [f"asin:{audiobook_request.asin}"]
+    if collection:
+        tags.append("collection")
+        if collection_label:
+            tags.append(f"collection:{collection_label[:40]}")
+    return tags
+
+
+def _extract_info_hash(magnet_url: str) -> str | None:
+    import re
+
+    match = re.search(r"xt=urn:btih:([a-zA-Z0-9]+)", magnet_url, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+    logger.warning("Could not extract hash from magnet link", magnet=magnet_url)
+    return None
+
+
 def _detect_collection(title: str) -> tuple[bool, str | None]:
     """
     Very light heuristic: mark obvious collection/boxset torrents.
@@ -128,25 +151,10 @@ async def start_download(
     success = False
     info_hash = None  # Initialize info_hash
 
-    tags = [f"asin:{audiobook_request.asin}"]
-    if collection:
-        tags.append("collection")
-        if collection_label:
-            tags.append(f"collection:{collection_label[:40]}")
+    tags = _build_qbittorrent_tags(audiobook_request, collection, collection_label)
 
     if prowlarr_source.magnet_url:
-        import re
-
-        match = re.search(
-            r"xt=urn:btih:([a-zA-Z0-9]+)", prowlarr_source.magnet_url, re.IGNORECASE
-        )
-        if match:
-            info_hash = match.group(1).lower()
-        else:
-            logger.warning(
-                "Could not extract hash from magnet link",
-                magnet=prowlarr_source.magnet_url,
-            )
+        info_hash = _extract_info_hash(prowlarr_source.magnet_url)
 
         success = await client.add_torrent(
             prowlarr_source.magnet_url,
@@ -288,6 +296,41 @@ _ProwlarrSearchResult = TypeAdapter(
 )
 
 
+def _to_source(result: _ProwlarrTorrentResult | _ProwlarrUsenetResult) -> ProwlarrSource | None:
+    if result.protocol not in ["torrent", "usenet"]:
+        logger.info("Skipping source with unknown protocol", protocol=result.protocol)
+        return None
+
+    is_collection, label = _detect_collection(result.title)
+    common_fields = dict(
+        guid=result.guid,
+        indexer_id=result.indexerId,
+        indexer=result.indexer,
+        title=result.title,
+        collection=is_collection,
+        collection_label=label,
+        size=result.size,
+        info_url=result.infoUrl,
+        indexer_flags=[x.lower() for x in result.indexerFlags],
+        download_url=result.downloadUrl,
+        magnet_url=result.magnetUrl,
+        publish_date=datetime.fromisoformat(result.publishDate),
+    )
+
+    if result.protocol == "torrent":
+        return TorrentSource(
+            protocol="torrent",
+            seeders=result.seeders,
+            leechers=result.leechers,
+            **common_fields,
+        )
+    return UsenetSource(
+        protocol="usenet",
+        grabs=result.grabs,
+        **common_fields,
+    )
+
+
 async def query_prowlarr(
     session: Session,
     client_session: ClientSession,
@@ -326,8 +369,9 @@ async def query_prowlarr(
         "offset": page * page_size,
     }
 
-    if len(x := prowlarr_config.get_categories(session)) > 0:
-        params["categories"] = x
+    categories = prowlarr_config.get_categories(session)
+    if categories:
+        params["categories"] = categories
 
     if indexer_ids is not None:
         params["indexerIds"] = indexer_ids
@@ -349,9 +393,7 @@ async def query_prowlarr(
         ) as response:
             prowlarr_text = await response.text()
             if not response.ok:
-                logger.error(
-                    "Prowlarr: Failed to query", response=await response.text()
-                )
+                logger.error("Prowlarr: Failed to query", response=prowlarr_text)
                 return []
             search_results = _ProwlarrSearchResult.validate_python(
                 await response.json()
@@ -382,52 +424,9 @@ async def query_prowlarr(
     sources: list[ProwlarrSource] = []
     for result in search_results:
         try:
-            if result.protocol not in ["torrent", "usenet"]:
-                logger.info(
-                    "Skipping source with unknown protocol", protocol=result.protocol
-                )
-                continue
-            if result.protocol == "torrent":
-                is_collection, label = _detect_collection(result.title)
-                sources.append(
-                    TorrentSource(
-                        protocol="torrent",
-                        guid=result.guid,
-                        indexer_id=result.indexerId,
-                        indexer=result.indexer,
-                        title=result.title,
-                        collection=is_collection,
-                        collection_label=label,
-                        seeders=result.seeders,
-                        leechers=result.leechers,
-                        size=result.size,
-                        info_url=result.infoUrl,
-                        indexer_flags=[x.lower() for x in result.indexerFlags],
-                        download_url=result.downloadUrl,
-                        magnet_url=result.magnetUrl,
-                        publish_date=datetime.fromisoformat(result.publishDate),
-                    )
-                )
-            else:
-                is_collection, label = _detect_collection(result.title)
-                sources.append(
-                    UsenetSource(
-                        protocol="usenet",
-                        guid=result.guid,
-                        indexer_id=result.indexerId,
-                        indexer=result.indexer,
-                        title=result.title,
-                        collection=is_collection,
-                        collection_label=label,
-                        grabs=result.grabs,
-                        size=result.size,
-                        info_url=result.infoUrl,
-                        indexer_flags=[x.lower() for x in result.indexerFlags],
-                        download_url=result.downloadUrl,
-                        magnet_url=result.magnetUrl,
-                        publish_date=datetime.fromisoformat(result.publishDate),
-                    )
-                )
+            source = _to_source(result)
+            if source:
+                sources.append(source)
         except KeyError as e:
             logger.error("Failed to parse source", source=result, keyerror=str(e))
 
@@ -487,7 +486,7 @@ async def get_indexers(
 
     indexers = list(prowlarr_indexer_cache.get_all(source_ttl).values())
     try:
-        if len(indexers) > 0:
+        if indexers:
             return IndexerResponse(
                 indexers={indexer.id: indexer for indexer in indexers},
                 state="ok",

@@ -46,6 +46,21 @@ def _replace_variables(
     return template
 
 
+def _ensure_replacements(
+    replacements: dict[str, str] | None,
+) -> dict[str, str]:
+    return replacements or {}
+
+
+def _book_fields_from_asin(
+    session: Session, book_asin: str
+) -> tuple[str | None, str | None, str | None]:
+    book = session.exec(select(Audiobook).where(Audiobook.asin == book_asin)).first()
+    if not book:
+        return None, None, None
+    return book.title, ",".join(book.authors), ",".join(book.narrators)
+
+
 async def _send(
     body: str | dict[str, json_type.JSON],
     notification: Notification,
@@ -80,19 +95,14 @@ async def send_notification(
     book_asin: str | None = None,
     other_replacements: dict[str, str] | None = None,
 ):
-    if other_replacements is None:
-        other_replacements = {}
+    other_replacements = _ensure_replacements(other_replacements)
     book_title = None
     book_authors = None
     book_narrators = None
     if book_asin:
-        book = session.exec(
-            select(Audiobook).where(Audiobook.asin == book_asin)
-        ).first()
-        if book:
-            book_title = book.title
-            book_authors = ",".join(book.authors)
-            book_narrators = ",".join(book.narrators)
+        book_title, book_authors, book_narrators = _book_fields_from_asin(
+            session, book_asin
+        )
 
     body = _replace_variables(
         notification.body,
@@ -141,8 +151,7 @@ async def send_all_notifications(
     book_asin: str | None = None,
     other_replacements: dict[str, str] | None = None,
 ):
-    if other_replacements is None:
-        other_replacements = {}
+    other_replacements = _ensure_replacements(other_replacements)
     with next(get_session()) as session:
         notifications = session.exec(
             select(Notification).where(
@@ -178,8 +187,7 @@ async def send_manual_notification(
     other_replacements: dict[str, str] | None = None,
 ):
     """Send a notification for manual book requests"""
-    if other_replacements is None:
-        other_replacements = {}
+    other_replacements = _ensure_replacements(other_replacements)
     try:
         book_authors = ",".join(book.authors)
         book_narrators = ",".join(book.narrators)
@@ -219,8 +227,7 @@ async def send_all_manual_notifications(
     book_request: ManualBookRequest,
     other_replacements: dict[str, str] | None = None,
 ):
-    if other_replacements is None:
-        other_replacements = {}
+    other_replacements = _ensure_replacements(other_replacements)
     with next(get_session()) as session:
         user = session.exec(
             select(User).where(User.username == book_request.user_username)

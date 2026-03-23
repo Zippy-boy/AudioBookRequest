@@ -27,25 +27,24 @@ class _Result(BaseModel):
     def display_title(self) -> str:
         return self.book_title or self.title or f"MAM-{self.id}"
 
+    def _parse_dict_values(self, value: str | None) -> list[str]:
+        if not value:
+            return []
+        content = json.loads(value)  # pyright: ignore[reportAny]
+        if isinstance(content, dict):
+            return [
+                x for x in content.values() if isinstance(x, str)
+            ]  # pyright: ignore[reportUnknownVariableType]
+        return []
+
     @property
     def authors(self) -> list[str]:
         """Response type of authors and narrators is a stringified json object"""
-
-        if not self.author_info:
-            return []
-        content = json.loads(self.author_info)  # pyright: ignore[reportAny]
-        if isinstance(content, dict):
-            return list(x for x in content.values() if isinstance(x, str))  # pyright: ignore[reportUnknownVariableType]
-        return []
+        return self._parse_dict_values(self.author_info)
 
     @property
     def narrators(self) -> list[str]:
-        if not self.narrator_info:
-            return []
-        content = json.loads(self.narrator_info)  # pyright: ignore[reportAny]
-        if isinstance(content, dict):
-            return list(x for x in content.values() if isinstance(x, str))  # pyright: ignore[reportUnknownVariableType]
-        return []
+        return self._parse_dict_values(self.narrator_info)
 
     @property
     def series(self) -> list[str]:
@@ -68,12 +67,7 @@ class _Result(BaseModel):
 
     @property
     def languages(self) -> list[str]:
-        if not self.language_info:
-            return []
-        content = json.loads(self.language_info)  # pyright: ignore[reportAny]
-        if isinstance(content, dict):
-            return list(x for x in content.values() if isinstance(x, str))  # pyright: ignore[reportUnknownVariableType]
-        return []
+        return self._parse_dict_values(self.language_info)
 
 
 class _MamResponse(BaseModel):

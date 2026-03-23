@@ -2,15 +2,36 @@ import json
 import uuid
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Security
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app.internal.models import EventEnum, Notification, NotificationBodyTypeEnum
+from app.internal.auth.authentication import APIKeyAuth, DetailedUser
+from app.internal.models import EventEnum, GroupEnum, Notification, NotificationBodyTypeEnum
 from app.internal.notifications import send_notification
 from app.util.db import get_session
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
+
+def _get_notification_or_404(session: Session, notification_id: uuid.UUID) -> Notification:
+    notif = session.get(Notification, notification_id)
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return notif
+
+
+def _parse_event_type(event_type: str) -> EventEnum:
+    try:
+        return EventEnum(event_type)
+    except ValueError:
+        raise HTTPException(400, "Invalid event type")
+
+
+def _parse_body_type(body_type: NotificationBodyTypeEnum) -> NotificationBodyTypeEnum:
+    try:
+        return NotificationBodyTypeEnum(body_type)
+    except ValueError:
+        raise HTTPException(400, "Invalid notification service type")
 
 
 class NotificationRequest(BaseModel):
@@ -26,6 +47,7 @@ class NotificationRequest(BaseModel):
 @router.get("", response_model=list[Notification])
 def list_notifications(
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     return session.exec(select(Notification)).all()
 
@@ -64,20 +86,11 @@ def _upsert_notification(
     except (json.JSONDecodeError, ValueError):
         raise HTTPException(422, "Body is invalid JSON")
 
-    try:
-        event_enum = EventEnum(event_type)
-    except ValueError:
-        raise HTTPException(400, "Invalid event type")
-
-    try:
-        body_enum = NotificationBodyTypeEnum(body_type)
-    except ValueError:
-        raise HTTPException(400, "Invalid notification service type")
+    event_enum = _parse_event_type(event_type)
+    body_enum = _parse_body_type(body_type)
 
     if notification_id:
-        notification = session.get(Notification, notification_id)
-        if not notification:
-            raise HTTPException(404, "Notification not found")
+        notification = _get_notification_or_404(session, notification_id)
         notification.name = name
         notification.url = url
         notification.event = event_enum
@@ -106,6 +119,7 @@ def _upsert_notification(
 def create_notification(
     body: NotificationRequest,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     return _upsert_notification(
         notification_id=body.id,
@@ -123,10 +137,9 @@ def create_notification(
 def delete_notification(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
-    notif = session.get(Notification, id)
-    if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
+    notif = _get_notification_or_404(session, id)
 
     session.delete(notif)
     session.commit()
@@ -137,10 +150,9 @@ def delete_notification(
 async def test_notification_id(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
-    notif = session.get(Notification, id)
-    if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
+    notif = _get_notification_or_404(session, id)
 
     try:
         await send_notification(session, notif)
@@ -154,10 +166,9 @@ async def test_notification_id(
 def toggle_notification(
     id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
-    notif = session.get(Notification, id)
-    if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
+    notif = _get_notification_or_404(session, id)
 
     notif.enabled = not notif.enabled
     session.add(notif)
@@ -170,12 +181,10 @@ def toggle_notification(
 async def test_notification(
     body: NotificationRequest,
     session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(APIKeyAuth(GroupEnum.admin))],
 ):
     headers_json = _validate_headers(body.headers)
-    try:
-        event_enum = EventEnum(body.event_type)
-    except ValueError:
-        raise HTTPException(400, "Invalid event type")
+    event_enum = _parse_event_type(body.event_type)
     try:
         await send_notification(
             session,

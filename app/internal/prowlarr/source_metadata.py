@@ -7,6 +7,12 @@ from app.internal.models import Audiobook, ProwlarrSource
 from app.util.log import logger
 
 
+def _log_exceptions(errors: list[object], message: str) -> None:
+    for exc in errors:
+        if exc:
+            logger.error(message, error=str(exc))
+
+
 async def edit_source_metadata(
     book: Audiobook,
     sources: list[ProwlarrSource],
@@ -18,9 +24,7 @@ async def edit_source_metadata(
         context.indexer.setup(book, container, context.valued) for context in contexts
     ]
     exceptions = await asyncio.gather(*coros, return_exceptions=True)
-    for exc in exceptions:
-        if exc:
-            logger.error("Failed to setup indexer", error=str(exc))
+    _log_exceptions(exceptions, "Failed to setup indexer")
 
     coros = []
     for source in sources:
@@ -30,6 +34,4 @@ async def edit_source_metadata(
                 break
 
     exceptions = await asyncio.gather(*coros, return_exceptions=True)
-    for exc in exceptions:
-        if exc:
-            logger.error("Failed to edit source metadata", error=str(exc))
+    _log_exceptions(exceptions, "Failed to edit source metadata")

@@ -30,6 +30,23 @@ def _headers(session: Session) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
 
+def _base_and_library_id(session: Session) -> tuple[str, str] | None:
+    base_url = abs_config.get_base_url(session)
+    lib_id = abs_config.get_library_id(session)
+    if not base_url or not lib_id:
+        return None
+    return base_url, lib_id
+
+
+def _parse_release_date(value: str | None) -> datetime:
+    if not value:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.now()
+
+
 class _LibraryArray(BaseModel):
     libraries: list[ABSLibrary] = []
 
@@ -58,10 +75,10 @@ async def abs_get_libraries(
 
 
 async def abs_trigger_scan(session: Session, client_session: ClientSession) -> bool:
-    base_url = abs_config.get_base_url(session)
-    lib_id = abs_config.get_library_id(session)
-    if not base_url or not lib_id:
+    details = _base_and_library_id(session)
+    if not details:
         return False
+    base_url, lib_id = details
     url = posixpath.join(base_url, f"api/libraries/{lib_id}/scan")
     logger.debug("ABS: triggering library scan", library_id=lib_id, url=url)
     async with client_session.post(url, headers=_headers(session), json={}) as resp:
@@ -106,10 +123,10 @@ async def abs_list_library_items(
     """
     Fetch a page of items from the configured ABS library and map them to Audiobook objects to render on the homepage
     """
-    base_url = abs_config.get_base_url(session)
-    lib_id = abs_config.get_library_id(session)
-    if not base_url or not lib_id:
+    details = _base_and_library_id(session)
+    if not details:
         return []
+    base_url, lib_id = details
 
     url = posixpath.join(base_url, f"api/libraries/{lib_id}/items")
     params = {
@@ -158,16 +175,7 @@ async def abs_list_library_items(
             except Exception:
                 runtime_length_min = 0
 
-            if metadata.publishedDate:
-                try:
-                    # Try ISO format
-                    release_date = datetime.fromisoformat(
-                        metadata.publishedDate.replace("Z", "+00:00")
-                    )
-                except Exception:
-                    release_date = datetime.now()
-            else:
-                release_date = datetime.now()
+            release_date = _parse_release_date(metadata.publishedDate)
 
             if not metadata.asin or not title:
                 logger.warning(
@@ -206,10 +214,10 @@ class _BookSearchResult(BaseModel):
 async def _abs_search(
     session: Session, client_session: ClientSession, query: str
 ) -> list[ABSBookItem]:
-    base_url = abs_config.get_base_url(session)
-    lib_id = abs_config.get_library_id(session)
-    if not base_url or not lib_id:
+    details = _base_and_library_id(session)
+    if not details:
         return []
+    base_url, lib_id = details
     url = posixpath.join(base_url, f"api/libraries/{lib_id}/search")
     try:
         async with client_session.get(

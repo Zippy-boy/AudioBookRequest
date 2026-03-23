@@ -86,10 +86,10 @@ class QualityProfile(StringConfigCache[QualityConfigKey]):
         self.set_int(session, "quality_auto_download", int(auto_download))
 
     def get_range(self, session: Session, key: QualityFormatKey) -> QualityRange:
-        range = self.get(session, key)
-        if not range:
+        quality_range = self.get(session, key)
+        if not quality_range:
             return self._default_quality_range
-        from_kbits, to_kbits = range.split(",", maxsplit=1)
+        from_kbits, to_kbits = quality_range.split(",", maxsplit=1)
         return QualityRange(from_kbits=float(from_kbits), to_kbits=float(to_kbits))
 
     def set_range(self, session: Session, key: QualityFormatKey, range: QualityRange):

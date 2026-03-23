@@ -71,9 +71,7 @@ class oidcConfig(StringConfigCache[oidcConfigKey]):
             ) from None
 
     def get_redirect_https(self, session: Session) -> bool:
-        if self.get(session, "oidc_redirect_https"):
-            return True
-        return False
+        return bool(self.get(session, "oidc_redirect_https"))
 
     async def validate(
         self, session: Session, client_session: ClientSession

@@ -3,8 +3,7 @@ from sqlmodel import Session
 from app.util.cache import StringConfigCache
 
 DownloadClientConfigKey = Literal[
-    "qbit_host",
-    "qbit_port",
+    "qbit_base_url",
     "qbit_user",
     "qbit_pass",
     "qbit_category",
@@ -15,17 +14,23 @@ DownloadClientConfigKey = Literal[
 
 
 class DownloadClientConfig(StringConfigCache[DownloadClientConfigKey]):
-    def get_qbit_host(self, session: Session) -> Optional[str]:
-        return self.get(session, "qbit_host")
+    def get_qbit_base_url(self, session: Session) -> str:
+        url = self.get(session, "qbit_base_url")
+        if url:
+            return url
+        
+        # Migration path
+        host = self.get(session, "qbit_host") # type: ignore
+        if host:
+            port = self.get_int(session, "qbit_port", 8080) # type: ignore
+            if "://" in host:
+                return host.rstrip("/")
+            return f"http://{host}:{port}"
+        
+        return "http://localhost:8080"
 
-    def set_qbit_host(self, session: Session, host: str):
-        self.set(session, "qbit_host", host)
-
-    def get_qbit_port(self, session: Session) -> int:
-        return self.get_int(session, "qbit_port", 8080)
-
-    def set_qbit_port(self, session: Session, port: int):
-        self.set_int(session, "qbit_port", port)
+    def set_qbit_base_url(self, session: Session, url: str):
+        self.set(session, "qbit_base_url", url.rstrip("/"))
 
     def get_qbit_user(self, session: Session) -> Optional[str]:
         return self.get(session, "qbit_user")

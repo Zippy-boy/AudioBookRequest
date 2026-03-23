@@ -130,7 +130,7 @@ async def update_security_settings(
             oidc_config.set(session, "oidc_scope", body.oidc_scope)
         if body.oidc_username_claim:
             oidc_config.set(session, "oidc_username_claim", body.oidc_username_claim)
-        if body.oidc_redirect_https:
+        if body.oidc_redirect_https is not None:
             oidc_config.set(
                 session,
                 "oidc_redirect_https",

@@ -15,6 +15,15 @@ from app.util.db import get_session
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
+def _get_user_or_404(session: Session, username: str) -> User:
+    user = session.get(User, username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return user
+
 
 class UserResponse(BaseModel):
     username: str = Field(description="Unique username")
@@ -100,14 +109,7 @@ def get_user(
 
     **Requires:** Admin privileges
     """
-    user = session.get(User, username)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    return UserResponse.from_user(user)
+    return UserResponse.from_user(_get_user_or_404(session, username))
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -164,12 +166,7 @@ def update_user(
 
     **Requires:** Admin privileges
     """
-    user = session.get(User, username)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+    user = _get_user_or_404(session, username)
 
     if user.root and user_data.group is not None:
         raise HTTPException(
@@ -227,12 +224,7 @@ def delete_user(
             detail="Cannot delete own user",
         )
 
-    user = session.get(User, username)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+    user = _get_user_or_404(session, username)
 
     if user.root:
         raise HTTPException(

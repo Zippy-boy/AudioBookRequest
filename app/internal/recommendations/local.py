@@ -16,6 +16,12 @@ class AudiobookPopularity(BaseModel):
         return f"{self.request_count} request{'s' if self.request_count != 1 else ''}"
 
 
+def _exclude_downloaded_books(statement, enabled: bool):
+    if enabled:
+        return statement.where(~col(Audiobook.downloaded))
+    return statement
+
+
 def get_popular_books(
     session: Session,
     limit: int = 10,
@@ -37,8 +43,7 @@ def get_popular_books(
         .limit(limit)
     )
 
-    if exclude_downloaded:
-        query = query.where(~col(Audiobook.downloaded))
+    query = _exclude_downloaded_books(query, exclude_downloaded)
     if exclude_requested_username:
         query = query.having(
             col(Audiobook.asin).not_in(
@@ -86,8 +91,7 @@ def get_recently_requested_books(
         .distinct()
     )
 
-    if exclude_downloaded:
-        query = query.where(~col(Audiobook.downloaded))
+    query = _exclude_downloaded_books(query, exclude_downloaded)
 
     results = session.exec(query).all()
     logger.debug(f"Recently requested books query returned {len(results)} results")
@@ -109,8 +113,7 @@ def get_most_popular_authors(
     """Get the most popular authors based on how many users have requested their books."""
 
     query = select(Audiobook).join(AudiobookRequest).distinct()
-    if exclude_downloaded:
-        query = query.where(~col(Audiobook.downloaded))
+    query = _exclude_downloaded_books(query, exclude_downloaded)
     if username:
         query = query.where(AudiobookRequest.user_username == username)
     audiobooks = session.exec(query).all()

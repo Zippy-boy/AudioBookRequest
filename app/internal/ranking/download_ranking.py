@@ -28,12 +28,12 @@ async def rank_sources(
         return [RankSource(source=source, quality=q) for q in qualities]
 
     coros = [get_qualities(source) for source in sources]
-    rank_sources = [x for y in await asyncio.gather(*coros) for x in y]
+    ranked_sources = [x for y in await asyncio.gather(*coros) for x in y]
 
     compare = CompareSource(session, book)
-    rank_sources.sort(key=cmp_to_key(compare))
+    ranked_sources.sort(key=cmp_to_key(compare))
 
-    return [rs.source for rs in rank_sources]
+    return [rs.source for rs in ranked_sources]
 
 
 @final
@@ -72,39 +72,36 @@ class CompareSource:
         return default_compare
 
     def _is_valid_quality(self, a: RankSource) -> bool:
-        match a.quality.file_format:
-            case "flac":
-                quality_range = quality_config.get_range(self.session, "quality_flac")
-            case "m4b":
-                quality_range = quality_config.get_range(self.session, "quality_m4b")
-            case "mp3":
-                quality_range = quality_config.get_range(self.session, "quality_mp3")
-            case "unknown-audio":
-                quality_range = quality_config.get_range(
-                    self.session, "quality_unknown_audio"
-                )
-            case "unknown":
-                quality_range = quality_config.get_range(
-                    self.session, "quality_unknown"
-                )
+        quality_range = self._quality_range_for(a.quality.file_format)
 
         return quality_range.from_kbits < a.quality.kbits < quality_range.to_kbits
 
+    def _quality_range_for(self, file_format: str):
+        match file_format:
+            case "flac":
+                return quality_config.get_range(self.session, "quality_flac")
+            case "m4b":
+                return quality_config.get_range(self.session, "quality_m4b")
+            case "mp3":
+                return quality_config.get_range(self.session, "quality_mp3")
+            case "unknown-audio":
+                return quality_config.get_range(
+                    self.session, "quality_unknown_audio"
+                )
+            case "unknown":
+                return quality_config.get_range(self.session, "quality_unknown")
+
+    def _is_valid_source(self, a: RankSource) -> bool:
+        if a.source.protocol == "torrent":
+            return self._is_valid_quality(a) and a.source.seeders >= quality_config.get_min_seeders(
+                self.session
+            )
+        return self._is_valid_quality(a)
+
     def _compare_valid(self, a: RankSource, b: RankSource, next_compare: int) -> int:
         """Filter out any reasons that make it not valid"""
-        if a.source.protocol == "torrent":
-            a_valid = self._is_valid_quality(
-                a
-            ) and a.source.seeders >= quality_config.get_min_seeders(self.session)
-        else:
-            a_valid = self._is_valid_quality(a)
-
-        if b.source.protocol == "torrent":
-            b_valid = self._is_valid_quality(
-                b
-            ) and b.source.seeders >= quality_config.get_min_seeders(self.session)
-        else:
-            b_valid = self._is_valid_quality(b)
+        a_valid = self._is_valid_source(a)
+        b_valid = self._is_valid_source(b)
 
         if a_valid == b_valid:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
@@ -180,29 +177,15 @@ class CompareSource:
         return int(b_title) - int(a_title)
 
     def _compare_authors(self, a: RankSource, b: RankSource, next_compare: int) -> int:
-        a_score = max(
-            vaguely_exist_in_title(
-                self.book.authors,
-                a.source.title,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
-            fuzzy_author_narrator_match(
-                a.source.book_metadata.authors,
-                self.book.authors,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
+        a_score = self._score_people(
+            source_title=a.source.title,
+            source_people=a.source.book_metadata.authors,
+            book_people=self.book.authors,
         )
-        b_score = max(
-            vaguely_exist_in_title(
-                self.book.authors,
-                b.source.title,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
-            fuzzy_author_narrator_match(
-                b.source.book_metadata.authors,
-                self.book.authors,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
+        b_score = self._score_people(
+            source_title=b.source.title,
+            source_people=b.source.book_metadata.authors,
+            book_people=self.book.authors,
         )
         if a_score == b_score:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
@@ -211,29 +194,15 @@ class CompareSource:
     def _compare_narrators(
         self, a: RankSource, b: RankSource, next_compare: int
     ) -> int:
-        a_score = max(
-            vaguely_exist_in_title(
-                self.book.narrators,
-                a.source.title,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
-            fuzzy_author_narrator_match(
-                a.source.book_metadata.narrators,
-                self.book.narrators,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
+        a_score = self._score_people(
+            source_title=a.source.title,
+            source_people=a.source.book_metadata.narrators,
+            book_people=self.book.narrators,
         )
-        b_score = max(
-            vaguely_exist_in_title(
-                self.book.narrators,
-                b.source.title,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
-            fuzzy_author_narrator_match(
-                b.source.book_metadata.narrators,
-                self.book.narrators,
-                quality_config.get_name_exists_ratio(self.session),
-            ),
+        b_score = self._score_people(
+            source_title=b.source.title,
+            source_people=b.source.book_metadata.narrators,
+            book_people=self.book.narrators,
         )
         if a_score == b_score:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
@@ -254,6 +223,18 @@ class CompareSource:
             return int((a.source.publish_date - b.source.publish_date).total_seconds())
         # With torrents: older => better
         return int((b.source.publish_date - a.source.publish_date).total_seconds())
+
+    def _score_people(
+        self,
+        source_title: str,
+        source_people: list[str],
+        book_people: list[str],
+    ) -> int:
+        name_ratio = quality_config.get_name_exists_ratio(self.session)
+        return max(
+            vaguely_exist_in_title(book_people, source_title, name_ratio),
+            fuzzy_author_narrator_match(source_people, book_people, name_ratio),
+        )
 
 
 def fuzzy_author_narrator_match(

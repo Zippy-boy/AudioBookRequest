@@ -1,22 +1,36 @@
-import os
-import json
-import uuid
 import asyncio
-from typing import List, Optional, Tuple
-from sqlmodel import Session, select
+import json
+import os
+from typing import Optional, Tuple
+
 from aiohttp import ClientSession
+from sqlmodel import Session, select
 
 from app.internal.models import (
-    LibraryImportSession, 
-    LibraryImportItem, 
-    ImportItemStatus, 
+    Audiobook,
+    ImportItemStatus,
     ImportSessionStatus,
-    Audiobook
+    LibraryImportItem,
+    LibraryImportSession,
 )
 from app.internal.library.scanner import LibraryScanner
 from app.internal.media_management.config import media_management_config
 from app.util.log import logger
 from app.util.db import get_session
+
+
+def _read_asin_from_metadata(path: str) -> str | None:
+    if not os.path.isdir(path):
+        return None
+    meta_path = os.path.join(path, "metadata.json")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data.get("asin")
+    except Exception:
+        return None
 
 class LibraryReconciler(LibraryScanner):
     """
@@ -25,7 +39,6 @@ class LibraryReconciler(LibraryScanner):
     """
     
     async def reconcile(self, client_session: ClientSession):
-        root = ""
         with next(get_session()) as session:
             root = media_management_config.get_library_path(session)
             if not root or not os.path.exists(root):
@@ -40,25 +53,24 @@ class LibraryReconciler(LibraryScanner):
         
         semaphore = asyncio.Semaphore(10)
         
-        async def process_unit(unit_data: Tuple[str, Optional[str], str, Optional[str]]):
-            path, author_guess, title_guess, language_guess = unit_data
-            
+        async def process_unit(
+            unit: Tuple[str, Optional[str], str, Optional[str]]
+        ):
+            path, author_guess, title_guess, language_guess = unit
+
             # Check for metadata.json first
-            asin = None
-            if os.path.isdir(path):
-                meta_path = os.path.join(path, "metadata.json")
-                if os.path.exists(meta_path):
-                    try:
-                        with open(meta_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            asin = data.get("asin")
-                    except: pass
+            asin = _read_asin_from_metadata(path)
             
             async with semaphore:
                 with next(get_session()) as session:
-                    import_session = session.get(LibraryImportSession, self.import_session_id)
+                    import_session = session.get(
+                        LibraryImportSession, self.import_session_id
+                    )
                     if not import_session:
-                        logger.warning("Reconciler: Import session missing, skipping unit", path=path)
+                        logger.warning(
+                            "Reconciler: Import session missing, skipping unit",
+                            path=path,
+                        )
                         return
                     # Check if this ASIN is already in DB and marked downloaded
                     if asin:
@@ -71,7 +83,10 @@ class LibraryReconciler(LibraryScanner):
                     if not asin:
                         # Find by title match
                         existing_by_title = session.exec(
-                            select(Audiobook).where(Audiobook.title == title_guess, Audiobook.downloaded == True)
+                            select(Audiobook).where(
+                                Audiobook.title == title_guess,
+                                Audiobook.downloaded == True,
+                            )
                         ).first()
                         if existing_by_title:
                             return # Likely already tracked
@@ -84,7 +99,7 @@ class LibraryReconciler(LibraryScanner):
                         detected_author=author_guess,
                         detected_title=title_guess,
                         status=ImportItemStatus.pending,
-                        match_asin=asin
+                        match_asin=asin,
                     )
                     session.add(item)
                     session.commit()

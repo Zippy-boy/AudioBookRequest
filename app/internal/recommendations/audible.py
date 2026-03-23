@@ -20,6 +20,24 @@ from app.util.connection import USER_AGENT
 from app.util.log import logger
 
 
+def _resolve_region(region: audible_region_type | None) -> audible_region_type:
+    return region or get_region_from_settings()
+
+
+def _get_requested_asins(
+    session: Session, username: str | None
+) -> set[str]:
+    if not username:
+        return set()
+    return set(
+        session.exec(
+            select(AudiobookRequest.asin).where(
+                AudiobookRequest.user_username == username
+            )
+        ).all()
+    )
+
+
 async def list_combined_audible_books(
     session: Session,
     client_session: ClientSession,
@@ -31,16 +49,7 @@ async def list_combined_audible_books(
     all_books: list[Audiobook] = []
     books_per_term = max(1, num_results // len(search_terms))
 
-    if exclude_requested_username:
-        requested_asins = set(
-            session.exec(
-                select(AudiobookRequest.asin).where(
-                    AudiobookRequest.user_username == exclude_requested_username
-                )
-            ).all()
-        )
-    else:
-        requested_asins = set[str]()
+    requested_asins = _get_requested_asins(session, exclude_requested_username)
 
     for term in search_terms:
         logger.debug("Searching for term", term=term)
@@ -160,8 +169,7 @@ async def list_similar_audible_books(
 
     Ordering of returned list should match Audible's ordering where possible.
     """
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    audible_region = _resolve_region(audible_region)
 
     cache_key = _SimsCacheKey(region=audible_region, num_results=num_results, asin=asin)
     cache_result = sims_cache.get(cache_key)

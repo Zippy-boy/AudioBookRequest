@@ -9,16 +9,14 @@ class QbittorrentClient:
     def __init__(
         self,
         session: Session,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
+        base_url: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
     ):
         self.session = session
 
         # Use provided values or fall back to config
-        host = host or download_client_config.get_qbit_host(session) or "localhost"
-        port = port or download_client_config.get_qbit_port(session) or 8080
+        self.base_url = base_url or download_client_config.get_qbit_base_url(session)
         self.username = (
             username
             if username is not None
@@ -30,15 +28,17 @@ class QbittorrentClient:
             else download_client_config.get_qbit_pass(session)
         )
 
-        # Robustly handle host/port/protocol
-        if "://" in host:
-            self.base_url = host.rstrip("/")
-        else:
-            self.base_url = f"http://{host}:{port}".rstrip("/")
-
-        self.host = host
-        self.port = port
         self.cookies = None
+
+    def _resolve_category(self, category: Optional[str]) -> Optional[str]:
+        if category:
+            return category
+        return download_client_config.get_qbit_category(self.session)
+
+    def _resolve_save_path(self, save_path: Optional[str]) -> Optional[str]:
+        if save_path:
+            return save_path
+        return download_client_config.get_qbit_save_path(self.session)
 
     async def _login(self, client: aiohttp.ClientSession) -> tuple[bool, int, str]:
         url = f"{self.base_url}/api/v2/auth/login"
@@ -72,7 +72,7 @@ class QbittorrentClient:
         save_path: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> bool:
-        if not self.host:
+        if not self.base_url:
             return False
 
         async with aiohttp.ClientSession() as client:
@@ -88,18 +88,11 @@ class QbittorrentClient:
             else:
                 data.add_field("torrents", torrent_data, filename="torrent.torrent")
 
-            if category:
-                data.add_field("category", category)
-            elif default_cat := download_client_config.get_qbit_category(self.session):
-                data.add_field("category", default_cat)
+            final_category = self._resolve_category(category)
+            if final_category:
+                data.add_field("category", final_category)
 
-            final_save_path = None
-            if save_path:
-                final_save_path = save_path
-            elif default_path := download_client_config.get_qbit_save_path(
-                self.session
-            ):
-                final_save_path = default_path
+            final_save_path = self._resolve_save_path(save_path)
 
             if final_save_path:
                 logger.debug("qBittorrent: Using save path", path=final_save_path)
@@ -130,7 +123,7 @@ class QbittorrentClient:
     async def get_torrents(
         self, category: Optional[str] = None, filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        if not self.host:
+        if not self.base_url:
             return []
 
         async with aiohttp.ClientSession() as client:
@@ -155,13 +148,13 @@ class QbittorrentClient:
                 return []
 
     async def test_connection(self) -> tuple[bool, int, str]:
-        if not self.host:
+        if not self.base_url:
             return False, 0, "No host configured"
         async with aiohttp.ClientSession() as client:
             return await self._login(client)
 
     async def add_torrent_tags(self, hash: str, tags: List[str]) -> bool:
-        if not self.host:
+        if not self.base_url:
             return False
         async with aiohttp.ClientSession() as client:
             success, _, _ = await self._login(client)
@@ -173,7 +166,7 @@ class QbittorrentClient:
                 return resp.status == 200
 
     async def delete_torrent(self, hash: str, delete_files: bool = False) -> bool:
-        if not self.host:
+        if not self.base_url:
             return False
         async with aiohttp.ClientSession() as client:
             success, _, _ = await self._login(client)

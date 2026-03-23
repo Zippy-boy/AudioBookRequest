@@ -103,39 +103,11 @@ class LibraryScanner:
 
         # Clean up any items still stuck in pending after scan completes
         with next(get_session()) as session:
-            pending_items = session.exec(
-                select(LibraryImportItem).where(
-                    LibraryImportItem.session_id == self.import_session_id,
-                    LibraryImportItem.status == ImportItemStatus.pending,
-                )
-            ).all()
-            if pending_items:
-                for item in pending_items:
-                    if item.match_asin:
-                        item.status = ImportItemStatus.matched
-                        if not item.match_score:
-                            book = session.get(Audiobook, item.match_asin)
-                            title_candidates, author_candidates = (
-                                self._build_match_candidates(item)
-                            )
-                            if book and self._is_exact_title_author_match(
-                                title_candidates, author_candidates, book
-                            ):
-                                item.match_score = 1.0
-                            else:
-                                item.match_score = 0.95
-                    else:
-                        item.status = ImportItemStatus.missing
-                session.add_all(pending_items)
-                session.commit()
+            self._finalize_pending_items(session)
 
         # Update final status
         with next(get_session()) as session:
-            import_session = session.get(LibraryImportSession, self.import_session_id)
-            if import_session:
-                import_session.status = ImportSessionStatus.review_ready
-                session.add(import_session)
-                session.commit()
+            self._set_session_status(session, ImportSessionStatus.review_ready)
 
         logger.info(
             "Scanner: Deep scan done and dusted", session_id=self.import_session_id
@@ -288,6 +260,45 @@ class LibraryScanner:
                         units.append((fpath, author, title, lang))
 
         return units
+
+    def _finalize_pending_items(self, session: Session) -> None:
+        pending_items = session.exec(
+            select(LibraryImportItem).where(
+                LibraryImportItem.session_id == self.import_session_id,
+                LibraryImportItem.status == ImportItemStatus.pending,
+            )
+        ).all()
+        if not pending_items:
+            return
+
+        for item in pending_items:
+            if item.match_asin:
+                item.status = ImportItemStatus.matched
+                if not item.match_score:
+                    book = session.get(Audiobook, item.match_asin)
+                    title_candidates, author_candidates = (
+                        self._build_match_candidates(item)
+                    )
+                    if book and self._is_exact_title_author_match(
+                        title_candidates, author_candidates, book
+                    ):
+                        item.match_score = 1.0
+                    else:
+                        item.match_score = 0.95
+            else:
+                item.status = ImportItemStatus.missing
+        session.add_all(pending_items)
+        session.commit()
+
+    def _set_session_status(
+        self, session: Session, status: ImportSessionStatus
+    ) -> None:
+        import_session = session.get(LibraryImportSession, self.import_session_id)
+        if not import_session:
+            return
+        import_session.status = status
+        session.add(import_session)
+        session.commit()
 
     def _guess_from_path(
         self, path: str, root: str, is_file: bool
@@ -529,6 +540,30 @@ class LibraryScanner:
 
         return title_candidates, author_candidates
 
+    def _build_search_queries(
+        self, title_candidates: list[str], author_candidates: list[str]
+    ) -> list[str]:
+        queries: list[str] = []
+        queries.extend(title_candidates)
+        if author_candidates and title_candidates:
+            for author in author_candidates:
+                for title in title_candidates:
+                    queries.append(f"{author} {title}")
+                    queries.append(f"{title} {author}")
+        elif author_candidates and not title_candidates:
+            queries.extend(author_candidates)
+        return self._dedupe_candidates(queries)[:6]
+
+    def _language_name(self, language: str | None) -> str:
+        if not language:
+            return ""
+        return {
+            "de": "German",
+            "fr": "French",
+            "it": "Italian",
+            "es": "Spanish",
+        }.get(language, "")
+
     def _expand_author_candidates(self, author_candidates: list[str]) -> list[str]:
         expanded: list[str] = []
         for author in author_candidates:
@@ -609,17 +644,7 @@ class LibraryScanner:
                 logger.warning("ASIN hunt failed", asin=path_asin, error=str(e))
 
         # 2. Scour search queries
-        search_queries = []
-        search_queries.extend(title_candidates)
-        if author_candidates and title_candidates:
-            for author in author_candidates:
-                for title in title_candidates:
-                    search_queries.append(f"{author} {title}")
-                    search_queries.append(f"{title} {author}")
-        elif author_candidates and not title_candidates:
-            search_queries.extend(author_candidates)
-
-        search_queries = self._dedupe_candidates(search_queries)[:6]
+        search_queries = self._build_search_queries(title_candidates, author_candidates)
 
         best_match, best_score, seen_asins = None, 0.0, set()
         # Prefer the user's default region; only override when language is explicit and differs.
@@ -660,12 +685,7 @@ class LibraryScanner:
                 continue
             query_str = q
             if language:
-                lang_name = {
-                    "de": "German",
-                    "fr": "French",
-                    "it": "Italian",
-                    "es": "Spanish",
-                }.get(language, "")
+                lang_name = self._language_name(language)
                 if lang_name and lang_name.lower() not in q.lower():
                     query_str = f"{q} {lang_name}"
 

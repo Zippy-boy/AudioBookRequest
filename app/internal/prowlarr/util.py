@@ -9,7 +9,7 @@ from app.util.log import logger
 
 
 class ProwlarrMisconfigured(ValueError):
-    pass
+    ...
 
 
 ProwlarrConfigKey = Literal[
@@ -24,11 +24,17 @@ ProwlarrConfigKey = Literal[
 
 
 class ProwlarrConfig(StringConfigCache[ProwlarrConfigKey]):
+    @staticmethod
+    def _load_int_list(value: str | None, default: list[int]) -> list[int]:
+        if value is None:
+            return default
+        return json.loads(value)  # pyright: ignore[reportAny]
+
     def raise_if_invalid(self, session: Session):
         if not self.get_base_url(session):
             raise ProwlarrMisconfigured("Prowlarr base url not set")
         if not self.get_api_key(session):
-            raise ProwlarrMisconfigured("Prowlarr base url not set")
+            raise ProwlarrMisconfigured("Prowlarr API key not set")
 
     def is_valid(self, session: Session) -> bool:
         return (
@@ -59,18 +65,14 @@ class ProwlarrConfig(StringConfigCache[ProwlarrConfigKey]):
 
     def get_categories(self, session: Session) -> list[int]:
         categories = self.get(session, "prowlarr_categories")
-        if categories is None:
-            return [3030]
-        return json.loads(categories)  # pyright: ignore[reportAny]
+        return self._load_int_list(categories, [3030])
 
     def set_categories(self, session: Session, categories: list[int]):
         self.set(session, "prowlarr_categories", json.dumps(categories))
 
     def get_indexers(self, session: Session) -> list[int]:
         indexers = self.get(session, "prowlarr_indexers")
-        if indexers is None:
-            return []
-        return json.loads(indexers)  # pyright: ignore[reportAny]
+        return self._load_int_list(indexers, [])
 
     def set_indexers(self, session: Session, indexers: list[int]):
         self.set(session, "prowlarr_indexers", json.dumps(indexers))

@@ -1,7 +1,7 @@
 import re
 
 
-def natural_sort_key(s: str):
+def natural_sort_key(s: str) -> list[int | str]:
     """
     Returns a key for natural sorting (e.g., '2' comes before '10').
     """
@@ -11,7 +11,7 @@ def natural_sort_key(s: str):
     ]
 
 
-def natural_sort(data_list: list[str]):
+def natural_sort(data_list: list[str]) -> list[str]:
     """
     Sorts a list in-place using natural sort order.
     """

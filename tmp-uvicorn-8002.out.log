@@ -1,0 +1,11 @@
+2026-03-23 20:48:39 [warning  ] Bundled web UI not mounted; build directory missing expected_paths=['C:\\Users\\Zippy\\Documents\\GitHub\\AudioBookRequest\\app\\static\\ui', 'C:\\Users\\Zippy\\Documents\\GitHub\\AudioBookRequest\\NarrarrUI\\build\\web']
+2026-03-23 20:48:39 [info     ] Generated UI API key for auto-config user=system
+2026-03-23 20:48:39 [info     ] Monitor: Starting download monitor loop
+INFO:     127.0.0.1:42336 - "GET /ui/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42337 - "GET /api/auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42338 - "GET /api/users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42339 - "POST /api/users/ HTTP/1.1" 201 Created
+INFO:     127.0.0.1:42340 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42341 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42342 - "POST /api/auth/logout HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:42343 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized

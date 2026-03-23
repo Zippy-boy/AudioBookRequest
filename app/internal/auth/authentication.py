@@ -169,6 +169,8 @@ class APIKeyAuth(SecurityBase):
                 ph.verify(api_key.key_hash, key)
             except VerifyMismatchError:
                 continue
+            if not api_key.enabled:
+                continue
 
             user = session.get(User, api_key.user_username)
             if not user:
@@ -203,6 +205,14 @@ class ABRAuth(SecurityBase):
             type=SecuritySchemeType.openIdConnect, description="ABR Authentication"
         )
         self.scheme_name = lowest_allowed_group.capitalize() + " ABR Authentication"
+
+    @staticmethod
+    def _invalid_basic_auth() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
     async def __call__(
         self,
@@ -253,12 +263,7 @@ class ABRAuth(SecurityBase):
         session: Session,
     ) -> User:
         logger.debug("Getting user from basic auth", url=request.url)
-
-        invalid_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+        invalid_exception = self._invalid_basic_auth()
 
         credentials = await self.security(request)
         if not credentials:

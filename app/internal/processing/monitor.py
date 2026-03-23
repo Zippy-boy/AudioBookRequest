@@ -13,6 +13,15 @@ from app.internal.models import AudiobookRequest, Audiobook, RequestLogLevel
 from app.internal.request_logs import log_request_event
 
 
+def _extract_collection_info(tags: str) -> tuple[bool, str | None]:
+    tags = tags or ""
+    collection_flag = "collection" in tags.lower()
+    label_match = re.search(r"collection:([^,;]+)", tags, re.IGNORECASE)
+    if label_match:
+        return True, label_match.group(1).strip()
+    return collection_flag, None
+
+
 async def download_monitor_loop():
     """
     Background loop to monitor download clients for completed downloads.
@@ -166,12 +175,9 @@ async def check_qbittorrent(session: Session):
                         session.commit()  # Commit to make status visible
 
                         tags = current_torrent.get("tags", "") or ""
-                        collection_flag = "collection" in tags.lower()
-                        collection_label = None
-                        label_match = re.search(r"collection:([^,;]+)", tags, re.IGNORECASE)
-                        if label_match:
-                            collection_label = label_match.group(1).strip()
-                            collection_flag = True
+                        collection_flag, collection_label = _extract_collection_info(
+                            tags
+                        )
 
                         await process_completed_download(
                             session,
