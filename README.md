@@ -45,6 +45,12 @@ ABR_APP__CONFIG_DIR=/config
 ABR_APP__DEBUG=false
 ABR_APP__OPENAPI_ENABLED=false
 ABR_APP__DEFAULT_REGION=us
+ABR_APP__FORCE_SETUP_WIZARD=false
+```
+
+To force the setup wizard for testing even when the app is already configured:
+```text
+ABR_APP__FORCE_SETUP_WIZARD=true
 ```
 
 ## Optional Services

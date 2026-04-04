@@ -38,6 +38,9 @@ class ApplicationSettings(BaseModel):
     force_login_type: str = ""
     """Forces the login type used. If set, the login type cannot be changed in the UI."""
 
+    force_setup_wizard: bool = False
+    """Keeps the setup wizard active until the backend marks setup as complete."""
+
     mam_metadata_enabled: bool = False
     """Enables MAM metadata fetching and OPF generation."""
 

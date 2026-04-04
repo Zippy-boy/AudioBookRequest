@@ -1,4 +1,5 @@
 from typing import Literal, Optional
+from urllib.parse import urlparse
 from sqlmodel import Session
 from app.util.cache import StringConfigCache
 
@@ -15,6 +16,35 @@ DownloadClientConfigKey = Literal[
 
 
 class DownloadClientConfig(StringConfigCache[DownloadClientConfigKey]):
+    def get_qbit_base_url(self, session: Session) -> str:
+        host = self.get_qbit_host(session)
+        port = self.get_qbit_port(session)
+        if not host:
+            return ""
+        if "://" in host:
+            parsed = urlparse(host)
+            scheme = parsed.scheme or "http"
+            base_host = parsed.hostname or host
+            return f"{scheme}://{base_host}:{port}".rstrip("/")
+        return f"http://{host}:{port}".rstrip("/")
+
+    def set_qbit_base_url(self, session: Session, base_url: str):
+        value = base_url.strip()
+        if not value:
+            self.delete(session, "qbit_host")
+            return
+        if "://" not in value:
+            self.set_qbit_host(session, value.rstrip("/"))
+            return
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.hostname:
+            if parsed.port is not None:
+                self.set_qbit_port(session, parsed.port)
+            host = f"{parsed.scheme}://{parsed.hostname}"
+            self.set_qbit_host(session, host.rstrip("/"))
+            return
+        self.set_qbit_host(session, value.rstrip("/"))
+
     def get_qbit_host(self, session: Session) -> Optional[str]:
         return self.get(session, "qbit_host")
 

@@ -6,6 +6,7 @@ services:
       - "8000:8000"
     environment:
       - ABR_APP__CONFIG_DIR=/config
+      - ABR_APP__FORCE_SETUP_WIZARD=true
     volumes:
       - ./abr_config:/config
       - ./library:/library

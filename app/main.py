@@ -19,12 +19,13 @@ from app.internal.models import User
 from app.routers import (
     api,
     auth,
+    library,
     recommendations,
     root,
     search,
     settings,
+    ui,
     wishlist,
-    library,
 )
 from app.util.db import get_session
 from app.util.fetch_js import fetch_scripts
@@ -68,6 +69,7 @@ app.include_router(recommendations.router, include_in_schema=False)
 app.include_router(root.router, include_in_schema=False)
 app.include_router(search.router, include_in_schema=False)
 app.include_router(settings.router, include_in_schema=False)
+app.include_router(ui.router, include_in_schema=False)
 app.include_router(wishlist.router, include_in_schema=False)
 app.include_router(library.router, include_in_schema=False)
 # api router under /api
@@ -132,6 +134,8 @@ async def redirect_to_init(
     if (
         request.url.path != "/init"
         and not request.url.path.startswith("/static")
+        and not request.url.path.startswith("/api")
+        and not request.url.path.startswith("/ui")
         and request.method == "GET"
     ):
         with next(get_session()) as session:

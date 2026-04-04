@@ -1,5 +1,4 @@
 import uuid
-import os
 from datetime import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks, Security
@@ -8,11 +7,6 @@ from sqlmodel import Session, select
 from app.util.db import get_session
 from app.util.templates import template_response
 from app.internal.auth.authentication import ABRAuth, DetailedUser, GroupEnum
-from app.internal.audiobookshelf.client import (
-    abs_trigger_scan,
-    background_abs_trigger_scan,
-)
-from app.internal.audiobookshelf.config import abs_config
 from app.internal.models import (
     LibraryImportSession,
     LibraryImportItem,
@@ -22,11 +16,7 @@ from app.internal.models import (
     AudiobookRequest,
 )
 from app.internal.library.scanner import LibraryScanner
-from app.internal.library.service import (
-    refresh_book_metadata,
-    update_downloaded_book_metadata,
-)
-from app.internal.media_management.config import media_management_config
+from app.internal.library.service import refresh_book_metadata
 from app.util.connection import get_connection
 from aiohttp import ClientSession
 from app.util.log import logger
@@ -37,120 +27,6 @@ router = APIRouter(prefix="/library", tags=["Library"])
 def get_import_view(request: Request) -> str:
     view = request.query_params.get("view", "table")
     return "grid" if view == "grid" else "table"
-
-
-def _detect_and_fix_db_issues(session: Session) -> dict:
-    """
-    Basic sanity checks to keep DB and filesystem in sync and surface issues to the user.
-    """
-    issues = {"fixed_missing": 0, "warnings": []}
-    lib_root = media_management_config.get_library_path(session)
-    if not lib_root or not os.path.isdir(lib_root):
-        issues["warnings"].append("Library path is not configured or missing on disk.")
-        return issues
-
-    from app.internal.library.scanner import LibraryScanner
-
-    downloaded_books = session.exec(
-        select(Audiobook).where(Audiobook.downloaded.is_(True))
-    ).all()
-    for book in downloaded_books:
-        path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
-        if not path:
-            # Flip the downloaded flag so the book can be re-requested/imported.
-            book.downloaded = False
-            session.add(book)
-            issues["fixed_missing"] += 1
-
-    session.commit()
-    return issues
-
-
-@router.post("/deep-clean")
-async def start_deep_clean(
-    background_tasks: BackgroundTasks,
-    session: Annotated[Session, Depends(get_session)],
-    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
-):
-    """
-    Runs a deep clean: reconcile internal library, clear stale cache, and trigger ABS rescan.
-    """
-    # Kick off reconciliation of the existing library
-    try:
-        old_sessions = session.exec(
-            select(LibraryImportSession).where(
-                LibraryImportSession.root_path == "__INTERNAL_LIBRARY__"
-            )
-        ).all()
-        for s in old_sessions:
-            session.delete(s)
-        session.commit()
-    except Exception:
-        session.rollback()
-
-    new_session = LibraryImportSession(
-        root_path="__INTERNAL_LIBRARY__", status=ImportSessionStatus.scanning
-    )
-    session.add(new_session)
-    session.commit()
-    session.refresh(new_session)
-
-    background_tasks.add_task(run_reconciler_task, new_session.id)
-
-    # Remove stale audiobook rows not referenced by requests/imports
-    from app.internal.book_search import clear_old_book_caches
-
-    clear_old_book_caches(session)
-
-    # Trigger ABS rescan if configured
-    async def abs_rescan():
-        try:
-            async with ClientSession() as client_session:
-                await _trigger_abs_rescan_if_configured(session, client_session)
-        except Exception:
-            pass
-
-    background_tasks.add_task(abs_rescan)
-
-    issues = _detect_and_fix_db_issues(session)
-    warning_toasts = "".join(
-        [
-            f"<script>toast('{w}', 'warning');</script>"
-            for w in issues.get("warnings", [])
-        ]
-    )
-    fixed_msg = ""
-    if issues.get("fixed_missing"):
-        fixed_msg = f"<script>toast('Reset {issues['fixed_missing']} missing book(s) so they can be re-requested.', 'info');</script>"
-
-    return HTMLResponse(
-        f"""<script>toast('Deep clean started. Library scan and ABS rescan running in background.', 'info');</script>{fixed_msg}{warning_toasts}"""
-    )
-
-
-async def _trigger_abs_rescan_if_configured(
-    session: Session, client_session: ClientSession
-) -> bool:
-    """
-    Fire an Audiobookshelf scan if credentials are configured.
-    """
-    if not (
-        abs_config.get_base_url(session)
-        and abs_config.get_api_token(session)
-        and abs_config.get_library_id(session)
-    ):
-        return False
-
-    try:
-        success = await abs_trigger_scan(session, client_session)
-        if not success:
-            logger.debug("ABS: library scan trigger returned false after metadata refresh")
-        return success
-    except Exception as e:
-        logger.warning(
-            "ABS: failed to trigger scan after metadata refresh", error=str(e)
-        )
-        return False
 
 
 @router.post("/bulk/delete")
@@ -187,15 +63,7 @@ async def bulk_delete(
 
         session.add(book)
 
-        # Remove associated requests so the title can be re-requested
-        session.execute(delete(AudiobookRequest).where(AudiobookRequest.asin == asin))
-
     session.commit()
-
-    # Kick ABS rescan so removed items/files get cleared from ABS
-    if abs_config.is_valid(session):
-        await background_abs_trigger_scan()
-
     return HTMLResponse("<script>window.location.reload();</script>")
 
 
@@ -215,18 +83,12 @@ async def bulk_reprocess(
 
         async with aiohttp.ClientSession() as client_session:
             with next(get_session()) as bg_session:
-                refreshed_any = False
                 for asin in asins:
                     try:
-                        updated = await refresh_book_metadata(
-                            bg_session, asin, client_session
-                        )
-                        refreshed_any = refreshed_any or updated
+                        await refresh_book_metadata(bg_session, asin, client_session)
                     except Exception as e:
                         logger.error(f"Bulk refresh failed for {asin}", error=str(e))
                 bg_session.commit()
-                if refreshed_any:
-                    await _trigger_abs_rescan_if_configured(bg_session, client_session)
 
     background_tasks.add_task(task)
     return HTMLResponse(
@@ -1106,7 +968,6 @@ async def rematch_apply(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
-    background_tasks: BackgroundTasks,
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     """
@@ -1125,16 +986,11 @@ async def rematch_apply(
     if not fetched:
         return HTMLResponse("<script>toast('Could not fetch metadata for that ASIN.', 'error');</script>")
 
-    existing_path = None
-    if old_book.downloaded:
-        lib_root = media_management_config.get_library_path(session)
-        if lib_root:
-            existing_path = LibraryScanner.find_book_path_by_asin(lib_root, old_asin)
-
     new_book = store_new_books(session, [fetched])[0]
     if old_book.downloaded and not new_book.downloaded:
         new_book.downloaded = True
         session.add(new_book)
+        session.commit()
 
     # Update requests
     old_requests = session.exec(
@@ -1161,39 +1017,9 @@ async def rematch_apply(
         item.match_asin = new_asin
         session.add(item)
 
-    metadata_updated = False
-    if old_book.downloaded:
-        if existing_path:
-            try:
-                from app.internal.processing.processor import reorganize_existing_book
-
-                await reorganize_existing_book(
-                    session, new_book, current_path=existing_path
-                )
-                metadata_updated = True
-            except Exception as e:
-                logger.warning(
-                    "Rematch: Failed to reorganize files after rematch", error=str(e)
-                )
-
-        if not metadata_updated:
-            try:
-                await update_downloaded_book_metadata(
-                    session, new_book, current_path=existing_path
-                )
-                metadata_updated = True
-            except Exception as inner:
-                logger.warning(
-                    "Rematch: Failed to rewrite metadata after rematch",
-                    error=str(inner),
-                )
-
     # Remove the old audiobook entry once references are updated
     session.delete(old_book)
     session.commit()
-
-    if abs_config.is_valid(session):
-        background_tasks.add_task(background_abs_trigger_scan)
 
     return HTMLResponse(
         "<script>toast('Book rematched successfully.', 'success'); window.location.reload();</script>"
@@ -1283,9 +1109,7 @@ async def execute_item_import(
     )
 
 
-async def run_single_importer_task(
-    item_id: uuid.UUID, move_files: bool, username: str, force_copy: bool = False
-):
+async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, username: str):
     """
     Background task to execute a single item import.
     """
@@ -1348,8 +1172,6 @@ async def run_single_importer_task(
             req,
             item.source_path,
             delete_source=True if is_reconciliation else move_files,
-            collection=False,
-            preserve_source=force_copy,
         )
 
         item.status = ImportItemStatus.imported
@@ -1422,9 +1244,7 @@ async def execute_import(
     )
 
 
-async def run_importer_task(
-    session_id: uuid.UUID, move_files: bool, username: str, force_copy: bool = False
-):
+async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: str):
     """
     Background task to execute the import in parallel (5 at a time).
     """
@@ -1501,8 +1321,6 @@ async def run_importer_task(
                         req,
                         item.source_path,
                         delete_source=True if is_reconciliation else move_files,
-                        collection=False,
-                        preserve_source=force_copy,
                     )
 
                     item.status = ImportItemStatus.imported
@@ -1528,15 +1346,7 @@ async def run_importer_task(
     with next(get_session()) as db_session:
         import_session = db_session.get(LibraryImportSession, session_id)
         if import_session:
-            items = db_session.exec(
-                select(LibraryImportItem).where(
-                    LibraryImportItem.session_id == session_id
-                )
-            ).all()
-            has_errors = any(i.status == ImportItemStatus.error for i in items)
-            import_session.status = (
-                ImportSessionStatus.failed if has_errors else ImportSessionStatus.completed
-            )
+            import_session.status = ImportSessionStatus.completed
             db_session.add(import_session)
             db_session.commit()
 
