@@ -27,10 +27,7 @@ async def read_abs(
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    response = await api_read_abs(
-        session=session,
-        client_session=client_session,
-    )
+    response = await api_read_abs(session, client_session, admin_user)
     return template_response(
         "settings_page/audiobookshelf.html",
         request,
@@ -52,7 +49,7 @@ def update_abs_base_url(
     session: Annotated[Session, Depends(get_session)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    api_update_abs_base_url(base_url=base_url, session=session)
+    api_update_abs_base_url(base_url, session, admin_user)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
@@ -62,9 +59,7 @@ def update_abs_api_token(
     session: Annotated[Session, Depends(get_session)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    api_update_abs_api_token(
-        api_token=api_token, session=session
-    )
+    api_update_abs_api_token(api_token, session, admin_user)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
@@ -74,9 +69,7 @@ def update_abs_library(
     session: Annotated[Session, Depends(get_session)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    api_update_abs_library(
-        library_id=library_id, session=session
-    )
+    api_update_abs_library(library_id, session, admin_user)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
@@ -86,10 +79,7 @@ def update_abs_check_downloaded(
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
     check_downloaded: Annotated[bool, Form()] = False,
 ):
-    api_update_abs_check_downloaded(
-        session=session,
-        check_downloaded=check_downloaded,
-    )
+    api_update_abs_check_downloaded(session, admin_user, check_downloaded=check_downloaded)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
