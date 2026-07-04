@@ -286,6 +286,118 @@ async def _get_audimeta_book(
     )
 
 
+class _AudibleProductResponse(BaseModel):
+    class _Author(BaseModel):
+        name: str
+
+    class _Narrator(BaseModel):
+        name: str
+
+    class _Series(BaseModel):
+        name: str
+        sequence: str | None = None
+
+    asin: str
+    title: str
+    subtitle: str | None = None
+    authors: list[_Author] | None = None
+    narrators: list[_Narrator] | None = None
+    series: list[_Series] | None = None
+    publisher_name: str | None = None
+    product_description: str | None = None
+    publication_date: str | None = None
+    runtime_length_min: int | None = None
+    language: str | None = None
+    product_images: dict[str, str] | None = None
+    categories: list[dict[str, Any]] | None = None
+    sku: str | None = None
+
+
+class _AudibleProductContainer(BaseModel):
+    product: _AudibleProductResponse
+
+
+def _best_image(images: dict[str, str] | None) -> str | None:
+    if not images:
+        return None
+    for res in ("500", "558", "360", "315", "252", "210", "180", "150", "120", "90"):
+        url = images.get(res)
+        if url:
+            return url
+    return next(iter(images.values()), None)
+
+
+async def _get_audible_book(
+    client_session: ClientSession,
+    asin: str,
+    region: audible_region_type,
+) -> Audiobook | None:
+    """
+    Fallback: fetch book details directly from the Audible catalog API.
+    https://audible.readthedocs.io/en/latest/misc/external_api.html
+    """
+    base_url = f"https://api.audible{audible_regions[region]}/1.0/catalog/products/{asin}"
+    params = {
+        "response_groups": "product_desc,series,authors,narrators,media,categories,sku",
+    }
+    url = base_url + "?" + urlencode(params)
+    logger.debug("Fetching book from Audible API", asin=asin, region=region)
+    try:
+        async with client_session.get(
+            url, headers={"User-Agent": USER_AGENT}
+        ) as response:
+            if not response.ok:
+                logger.warning(
+                    "Failed to fetch book from Audible API",
+                    asin=asin,
+                    status=response.status,
+                    reason=response.reason,
+                )
+                return None
+            container = _AudibleProductContainer.model_validate(await response.json())
+    except Exception as e:
+        logger.error("Exception while fetching book from Audible API", asin=asin, error=e)
+        return None
+
+    p = container.product
+    parsed_genres = []
+    if p.categories:
+        for cat in p.categories:
+            name = cat.get("name") or cat.get("ladder", [{}])[-1].get("name", "")
+            if name:
+                parsed_genres.append(name)
+
+    series_list, series_index = _normalize_series(
+        [s.name for s in p.series] if p.series else []
+    )
+
+    release_date = None
+    if p.publication_date:
+        try:
+            release_date = datetime.fromisoformat(p.publication_date.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            release_date = datetime.now()
+
+    cover_url = _best_image(p.product_images)
+
+    return Audiobook(
+        asin=p.asin,
+        title=p.title,
+        subtitle=p.subtitle,
+        authors=[a.name for a in p.authors] if p.authors else [],
+        narrators=[n.name for n in p.narrators] if p.narrators else [],
+        series=series_list,
+        series_index=series_index,
+        genres=parsed_genres,
+        publisher=p.publisher_name,
+        description=p.product_description,
+        language=p.language,
+        cover_image=cover_url,
+        release_date=release_date or datetime.now(),
+        runtime_length_min=p.runtime_length_min or 0,
+    )
+
+
 async def get_book_by_asin(
     client_session: ClientSession,
     asin: str,
@@ -304,8 +416,16 @@ async def get_book_by_asin(
     book = await _get_audnexus_book(client_session, asin, audible_region)
     if book:
         return book
+    logger.debug(
+        "Audnexus did not have the book, trying Audible API",
+        asin=asin,
+        region=audible_region,
+    )
+    book = await _get_audible_book(client_session, asin, audible_region)
+    if book:
+        return book
     logger.warning(
-        "Did not find the book on both Audnexus and Audimeta",
+        "Did not find the book on Audimeta, Audnexus, or Audible API",
         asin=asin,
         region=audible_region,
     )
