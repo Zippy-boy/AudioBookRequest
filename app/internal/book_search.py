@@ -75,10 +75,8 @@ def _normalize_series(series_list: list[str] | None) -> tuple[list[str], str | N
 
 
 def clear_old_book_caches(session: Session):
-    """Deletes outdated cached audiobooks that haven't been requested by anyone"""
-    stale_cutoff = datetime.fromtimestamp(time.time() - REFETCH_TTL)
+    """Deletes cached audiobooks that aren't downloaded or referenced by any request"""
     deletable_asins = select(col(Audiobook.asin)).where(
-        col(Audiobook.updated_at) < stale_cutoff,
         not_(Audiobook.downloaded),
         not_(
             select(AudiobookRequest.asin)
@@ -99,7 +97,7 @@ def clear_old_book_caches(session: Session):
         ),
     )
     session.commit()
-    logger.debug("Cleared old book caches", rowcount=result.rowcount)
+    logger.debug("Cleared cached audiobooks on startup", rowcount=result.rowcount)
 
 
 def get_region_from_settings(user: User | None = None) -> audible_region_type:
@@ -337,10 +335,7 @@ async def _get_audible_book(
     https://audible.readthedocs.io/en/latest/misc/external_api.html
     """
     base_url = f"https://api.audible{audible_regions[region]}/1.0/catalog/products/{asin}"
-    params = {
-        "response_groups": "product_desc,series,authors,narrators,media,categories,sku",
-    }
-    url = base_url + "?" + urlencode(params)
+    url = base_url
     logger.debug("Fetching book from Audible API", asin=asin, region=region)
     try:
         async with client_session.get(
@@ -398,6 +393,87 @@ async def _get_audible_book(
     )
 
 
+class _ITunesResult(BaseModel):
+    collectionName: str | None = None
+    artistName: str | None = None
+    collectionDescription: str | None = None
+    collectionViewUrl: str | None = None
+    artworkUrl100: str | None = None
+    releaseDate: str | None = None
+    primaryGenreName: str | None = None
+    genres: list[str] | None = None
+    description: str | None = None
+    trackCount: int | None = None
+
+
+class _ITunesResponse(BaseModel):
+    resultCount: int
+    results: list[_ITunesResult]
+
+
+async def _get_itunes_book(
+    client_session: ClientSession,
+    asin: str,
+) -> Audiobook | None:
+    """
+    Fallback: search Apple iTunes for an audiobook by ASIN.
+    https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/
+    """
+    url = f"https://itunes.apple.com/search?term={asin}&media=audiobook&entity=audiobook&limit=1"
+    logger.debug("Fetching book from Apple iTunes", asin=asin)
+    try:
+        async with client_session.get(
+            url, headers={"User-Agent": USER_AGENT}
+        ) as response:
+            if not response.ok:
+                logger.warning(
+                    "Failed to fetch book from Apple iTunes",
+                    asin=asin,
+                    status=response.status,
+                    reason=response.reason,
+                )
+                return None
+            itunes_response = _ITunesResponse.model_validate(await response.json())
+    except Exception as e:
+        logger.error("Exception while fetching book from Apple iTunes", asin=asin, error=e)
+        return None
+
+    if itunes_response.resultCount == 0 or not itunes_response.results:
+        logger.debug("Apple iTunes returned no results", asin=asin)
+        return None
+
+    r = itunes_response.results[0]
+    parsed_genres = []
+    if r.genres:
+        parsed_genres.extend(r.genres)
+    if r.primaryGenreName and r.primaryGenreName not in parsed_genres:
+        parsed_genres.append(r.primaryGenreName)
+
+    release_date = None
+    if r.releaseDate:
+        try:
+            release_date = datetime.fromisoformat(r.releaseDate.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            pass
+
+    return Audiobook(
+        asin=asin,
+        title=r.collectionName or "Unknown",
+        subtitle=None,
+        authors=[r.artistName] if r.artistName else [],
+        narrators=[],
+        series=[],
+        series_index=None,
+        genres=parsed_genres,
+        publisher=None,
+        description=r.description or r.collectionDescription,
+        language=None,
+        cover_image=r.artworkUrl100,
+        release_date=release_date or datetime.now(),
+        runtime_length_min=0,
+    )
+
+
 async def get_book_by_asin(
     client_session: ClientSession,
     asin: str,
@@ -424,8 +500,16 @@ async def get_book_by_asin(
     book = await _get_audible_book(client_session, asin, audible_region)
     if book:
         return book
+    logger.debug(
+        "Audible API did not have the book, trying Apple iTunes",
+        asin=asin,
+        region=audible_region,
+    )
+    book = await _get_itunes_book(client_session, asin)
+    if book:
+        return book
     logger.warning(
-        "Did not find the book on Audimeta, Audnexus, or Audible API",
+        "Did not find the book on Audimeta, Audnexus, Audible API, or Apple iTunes",
         asin=asin,
         region=audible_region,
     )

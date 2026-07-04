@@ -73,11 +73,13 @@ async def create_request(
     if audible_regions.get(region) is None:
         raise HTTPException(status_code=400, detail="Invalid region")
 
-    book = await get_book_by_asin(client_session, asin, region)
+    book = session.get(Audiobook, asin)
+    if not book:
+        book = await get_book_by_asin(client_session, asin, region)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    existing_library_book = session.get(Audiobook, asin)
+    existing_library_book = book
     in_library_on_disk = library_contains_asin(session, asin)
 
     if in_library_on_disk:
