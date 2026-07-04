@@ -1,0 +1,139 @@
+{% extends "library/base_library.html" %}
+{% set page = 'dedup' %}
+
+{% block head %}
+<title>Library Dedup - Narrarr</title>
+{% endblock head %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-black">Library Health</h2>
+            <p class="text-sm opacity-60">Duplicates, missing files, and other issues</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+        <div class="app-card app-panel">
+            <p class="text-[10px] font-black opacity-40 uppercase">Total Books</p>
+            <p class="text-3xl font-black text-primary">{{ total_books }}</p>
+        </div>
+        <div class="app-card app-panel {% if missing_count > 0 %}border-warning/50{% endif %}">
+            <p class="text-[10px] font-black opacity-40 uppercase">Missing Files</p>
+            <p class="text-3xl font-black {% if missing_count > 0 %}text-warning{% else %}text-success{% endif %}">{{ missing_count }}</p>
+        </div>
+        <div class="app-card app-panel {% if dupe_count > 0 %}border-error/50{% endif %}">
+            <p class="text-[10px] font-black opacity-40 uppercase">Potential Dupes</p>
+            <p class="text-3xl font-black {% if dupe_count > 0 %}text-error{% else %}text-success{% endif %}">{{ dupe_count }}</p>
+        </div>
+    </div>
+
+    {% if missing_files %}
+    <div class="flex justify-end">
+        <button class="btn btn-sm btn-warning rounded-xl font-black uppercase text-[10px]"
+                hx-post="{{ base_url }}/library/dedup/cleanup-missing"
+                hx-confirm="Remove {{ missing_files|length }} books from DB? Files on disk won't be deleted."
+                hx-target="#toast-block"
+                hx-on::after-request="window.location.reload()">
+            Clean Up {{ missing_files|length }} Missing
+        </button>
+    </div>
+    <div class="app-card overflow-hidden">
+        <div class="card-body p-6">
+            <h3 class="card-title text-xs font-black opacity-50 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <span class="text-warning">&#x26A0;</span> Books with Missing Files ({{ missing_files|length }})
+            </h3>
+            <div class="overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr class="text-[10px] font-black uppercase tracking-widest">
+                            <th>Title</th>
+                            <th>Author</th>
+                            <th>ASIN</th>
+                            <th class="text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for book in missing_files %}
+                        <tr class="hover:bg-base-200/60">
+                            <td class="font-semibold text-xs">{{ book.title }}</td>
+                            <td class="text-[10px] opacity-70">{{ book.authors|join(', ') }}</td>
+                            <td><code class="text-[10px] opacity-50">{{ book.asin }}</code></td>
+                            <td class="text-right">
+                                <button class="btn btn-xs btn-ghost text-warning font-black text-[9px] uppercase"
+                                        hx-post="{{ base_url }}/library/bulk/reprocess"
+                                        hx-vals='{"asins": ["{{ book.asin }}"]}'
+                                        hx-target="#toast-block"
+                                        hx-swap="innerHTML">Re-scan</button>
+                                <button class="btn btn-xs btn-ghost text-error font-black text-[9px] uppercase"
+                                        hx-post="{{ base_url }}/library/bulk/delete"
+                                        hx-vals='{"asins": ["{{ book.asin }}"]}'
+                                        hx-confirm="Remove this book from library?"
+                                        hx-on::after-request="window.location.reload()">Remove</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if title_dupes %}
+    <div class="app-card overflow-hidden">
+        <div class="card-body p-6">
+            <h3 class="card-title text-xs font-black opacity-50 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <span class="text-error">&#x26A0;</span> Potential Duplicate Books ({{ title_dupes|length }} groups)
+            </h3>
+            <div class="space-y-4">
+                {% for title_key, dupes in title_dupes.items() %}
+                <div class="border border-base-300 rounded-xl overflow-hidden">
+                    <div class="bg-base-200/50 px-4 py-2 flex items-center justify-between">
+                        <span class="font-black text-sm">{{ dupes[0].title }}</span>
+                        <span class="badge badge-sm font-black">{{ dupes|length }} copies</span>
+                    </div>
+                    <div class="p-4">
+                        {% for book in dupes %}
+                        <div class="flex items-center justify-between py-2 {% if not loop.last %}border-b border-base-200{% endif %}">
+                            <div class="flex items-center gap-3">
+                                {% if book.cover_image %}
+                                <img src="{{ book.cover_image }}" class="size-10 rounded object-cover">
+                                {% endif %}
+                                <div>
+                                    <div class="font-semibold text-xs">{{ book.title }}</div>
+                                    <div class="text-[9px] opacity-50">{{ book.authors|join(', ') }} &bull; {{ book.asin }}</div>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-xs btn-ghost font-black text-[9px] uppercase"
+                                        hx-get="{{ base_url }}/library/rematch/modal/{{ book.asin }}"
+                                        hx-target="#book-details-modal-container">Remap</button>
+                                {% if dupes|length > 1 %}
+                                <button class="btn btn-xs btn-ghost text-error font-black text-[9px] uppercase"
+                                        hx-post="{{ base_url }}/library/bulk/delete"
+                                        hx-vals='{"asins": ["{{ book.asin }}"]}'
+                                        hx-confirm="Remove this duplicate?"
+                                        hx-on::after-request="window.location.reload()">Remove</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if not missing_files and not title_dupes %}
+    <div class="app-card app-panel text-center py-16">
+        <div class="text-5xl mb-4 opacity-30">&#x2705;</div>
+        <p class="font-black text-lg opacity-60">All Clear</p>
+        <p class="text-sm opacity-40 mt-1">No issues found in your library</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock content %}

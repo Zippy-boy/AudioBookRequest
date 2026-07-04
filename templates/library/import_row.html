@@ -9,9 +9,10 @@
     data-import-item
     data-source="{{ item.source_path|basename|lower }}"
     data-detected="{{ ((item.detected_title or '') ~ ' ' ~ (item.detected_author or ''))|lower }}"
-    data-match="{{ (match_title or '')|lower }}"
-    data-confidence="{{ item.match_score or 0 }}"
-    data-status="{{ status_value }}">
+     data-match="{{ (match_title or '')|lower }}"
+     data-confidence="{{ item.match_score or 0 }}"
+     data-status="{{ status_value }}"
+     {% if item.already_in_library %}data-already-in-library{% endif %}>
     <td class="py-3 w-10 align-top">
         {% if status_value == 'matched' %}
         <input type="checkbox" class="checkbox checkbox-xs checkbox-primary item-checkbox" value="{{ item.id }}"
@@ -30,6 +31,9 @@
         <div class="text-[10px] opacity-60 line-clamp-2 max-w-[260px]" title="{{ match_author }}">{{ match_author }}</div>
         {% else %}
         <span class="text-[10px] opacity-40 italic">No automatic match</span>
+        {% endif %}
+        {% if item.already_in_library %}
+        <div class="mt-1"><span class="badge badge-xs badge-warning font-black text-[8px] border-0 py-1 px-1.5">Already in Library</span></div>
         {% endif %}
     </td>
     <td class="py-3 align-top text-center">

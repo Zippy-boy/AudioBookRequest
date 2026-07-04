@@ -3,6 +3,10 @@
 {% set view = view|default('table') %}
 {% block head %}
 <title>Library Import</title>
+<style>
+    [data-already-in-library] { opacity: 0.6; }
+    [data-already-in-library]:hover { opacity: 1; }
+</style>
 {% endblock head %}
 
 {% block content %}
@@ -101,6 +105,26 @@
                                     disabled>
                                 Import Selected
                             </button>
+
+                            <!-- Skip Selected -->
+                            <button class="btn btn-ghost rounded-xl px-4 font-black uppercase tracking-wider btn-sm h-10 min-h-0 text-error"
+                                    id="skip-selected-btn"
+                                    onclick="skipSelected()"
+                                    disabled>
+                                Skip Selected
+                            </button>
+
+                            <!-- Skip Already in Library -->
+                            <form hx-post="{{ base_url }}/library/import/skip-already-in-library/{{ session.id }}?view={{ view }}"
+                                  hx-target="#session-status-container"
+                                  hx-swap="innerHTML"
+                                  hx-on::before-request="this.querySelector('button').classList.add('loading'); this.querySelector('button').innerText = 'Skipping...';"
+                                  class="flex items-center">
+                                <button type="submit" class="btn btn-ghost rounded-xl px-4 font-black uppercase tracking-wider btn-sm h-10 min-h-0 text-warning"
+                                        {% set skip_count = items|selectattr('already_in_library', 'equalto', True)|list|length %}{% if skip_count == 0 %}disabled{% endif %}>
+                                    Skip Already in Library ({{ skip_count }})
+                                </button>
+                            </form>
 
                             <div class="divider divider-horizontal m-0 w-px h-6 bg-base-content/10"></div>
 
@@ -350,34 +374,52 @@
 
     function updateImportSelectedButton() {
         const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
-        const btn = document.getElementById('import-selected-btn');
-        if (btn) {
-            btn.disabled = checked.length === 0;
-            if (checked.length > 0) {
-                btn.innerText = 'Import Selected (' + checked.length + ')';
-            } else {
-                btn.innerText = 'Import Selected';
-            }
+        const importBtn = document.getElementById('import-selected-btn');
+        const skipBtn = document.getElementById('skip-selected-btn');
+        const disabled = checked.length === 0;
+        if (importBtn) {
+            importBtn.disabled = disabled;
+            importBtn.innerText = disabled ? 'Import Selected' : 'Import Selected (' + checked.length + ')';
         }
+        if (skipBtn) {
+            skipBtn.disabled = disabled;
+            skipBtn.innerText = disabled ? 'Skip Selected' : 'Skip Selected (' + checked.length + ')';
+        }
+    }
+
+    function skipSelected() {
+        const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
+        if (checked.length === 0) return;
+        const sessionId = '{{ session.id|default('') }}';
+        const view = '{{ view|default('table') }}';
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+        Array.from(checked).forEach(cb => formData.append('item_ids', cb.value));
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '{{ base_url|default('') }}/library/import/skip-selected?view=' + view, true);
+        xhr.setRequestHeader('HX-Request', 'true');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                document.getElementById('session-status-container').innerHTML = xhr.responseText;
+            }
+        };
+        xhr.send(formData);
     }
 
     function importSelected() {
         const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
         if (checked.length === 0) return;
 
-        // Find session ID from the page
-        const sessionId = '{{ session.id }}';
+        const sessionId = '{{ session.id|default('') }}';
         const itemIds = Array.from(checked).map(cb => cb.value);
-        const view = '{{ view }}';
+        const view = '{{ view|default('table') }}';
 
-        // Build form data
         const formData = new FormData();
         formData.append('session_id', sessionId);
         itemIds.forEach(id => formData.append('item_ids', id));
 
-        // Submit via HTMX
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '{{ base_url }}/library/import/selected?view=' + view, true);
+        xhr.open('POST', '{{ base_url|default('') }}/library/import/selected?view=' + view, true);
         xhr.setRequestHeader('HX-Request', 'true');
         xhr.onload = function() {
             if (xhr.status === 200) {

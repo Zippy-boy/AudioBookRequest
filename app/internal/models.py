@@ -364,6 +364,7 @@ class LibraryImportItem(BaseSQLModel, table=True):
         default=None, foreign_key="audiobook.asin", nullable=True
     )
     match_score: float = Field(default=0.0)
+    already_in_library: bool = Field(default=False)
     status: ImportItemStatus = Field(default=ImportItemStatus.pending)
     error_msg: str | None = None
 

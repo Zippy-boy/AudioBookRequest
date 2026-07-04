@@ -13,9 +13,12 @@ from app.internal.auth.session_middleware import (
     middleware_linker,
 )
 from app.internal.auth.oidc_config import InvalidOIDCConfiguration
+from sqlalchemy import inspect
+
 from app.internal.book_search import clear_old_book_caches
 from app.internal.env_settings import Settings
 from app.internal.models import User
+from app.util.db import engine
 from app.routers import (
     api,
     auth,
@@ -43,6 +46,18 @@ with next(get_session()) as session:
     access_token_expiry = auth_config.get_access_token_expiry_minutes(session)
     initialize_force_login_type(session)
     clear_old_book_caches(session)
+
+    # Schema migrations: add columns that may not exist yet
+    from sqlmodel import col, text as sql_text
+    inspector = inspect(engine)
+    columns = [col["name"] for col in inspector.get_columns("libraryimportitem")]
+    if "already_in_library" not in columns:
+        session.execute(
+            sql_text(
+                "ALTER TABLE libraryimportitem ADD COLUMN already_in_library BOOLEAN NOT NULL DEFAULT 0"
+            )
+        )
+        session.commit()
 
 
 app = FastAPI(

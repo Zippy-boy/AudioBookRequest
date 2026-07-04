@@ -597,11 +597,11 @@ class LibraryScanner:
                         title_candidates, author_candidates, book
                     )
                     match_score = 1.0 if exact_match else 0.98
-                    item.match_asin, item.match_score, item.status = (
-                        book.asin,
-                        match_score,
-                        ImportItemStatus.matched,
-                    )
+                    item.match_asin, item.match_score = book.asin, match_score
+                    item.status = ImportItemStatus.matched
+                    existing_book = session.get(Audiobook, book.asin)
+                    if existing_book and existing_book.downloaded:
+                        item.already_in_library = True
                     session.add(item)
                     session.commit()
                     return
@@ -811,11 +811,12 @@ class LibraryScanner:
                 match_score = 1.0
             else:
                 match_score = min(match_score, 0.99)
-            item.match_asin, item.match_score, item.status = (
-                best_match.asin,
-                match_score,
-                ImportItemStatus.matched,
-            )
+            item.match_asin, item.match_score = best_match.asin, match_score
+            item.status = ImportItemStatus.matched
+            # Check if this ASIN is already downloaded in the library
+            existing_book = session.get(Audiobook, best_match.asin)
+            if existing_book and existing_book.downloaded:
+                item.already_in_library = True
         else:
             item.status = ImportItemStatus.missing
         session.add(item)

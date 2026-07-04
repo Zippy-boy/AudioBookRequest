@@ -190,6 +190,16 @@ async def library_management(
         .order_by(Audiobook.title)
     ).all()
 
+    # Check file existence on disk
+    from app.internal.media_management.config import media_management_config
+    lib_root = media_management_config.get_library_path(session)
+    missing_on_disk: set[str] = set()
+    if lib_root:
+        for book in books:
+            path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
+            if not path:
+                missing_on_disk.add(book.asin)
+
     # Check for latest reconciliation session
     recon_session = session.exec(
         select(LibraryImportSession)
@@ -263,6 +273,7 @@ async def library_management(
             "matched_books": matched_books,
             "missing_books": missing_books,
             "unmatched_books": unmatched_books,
+            "missing_on_disk": missing_on_disk,
         },
     )
 
@@ -738,6 +749,82 @@ async def get_library_stats(
         "unmatched_count": 0,
         "untracked_count": untracked_count,
     }
+
+
+@router.get("/dedup")
+async def dedup_page(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    """Detect duplicate books, missing files, and other library issues."""
+    from collections import defaultdict
+    from app.internal.media_management.config import media_management_config
+
+    books = session.exec(
+        select(Audiobook).where(Audiobook.downloaded == True)  # noqa: E712
+    ).all()
+
+    lib_root = media_management_config.get_library_path(session)
+
+    missing_files = []
+    dupes_by_title: dict[str, list[Audiobook]] = defaultdict(list)
+
+    for book in books:
+        # Check for missing files
+        if lib_root:
+            path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
+            if not path:
+                missing_files.append(book)
+
+        # Group by normalized title for duplicate detection
+        norm = book.title.lower().strip() if book.title else ""
+        if norm:
+            dupes_by_title[norm].append(book)
+
+    title_dupes = {k: v for k, v in dupes_by_title.items() if len(v) > 1}
+
+    return template_response(
+        "library/dedup.html",
+        request,
+        user,
+        {
+            "missing_files": missing_files,
+            "title_dupes": title_dupes,
+            "total_books": len(books),
+            "dupe_count": sum(len(v) - 1 for v in title_dupes.values()),
+            "missing_count": len(missing_files),
+        },
+    )
+
+
+@router.post("/dedup/cleanup-missing")
+async def cleanup_missing(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    """Remove all books from DB that are marked downloaded but have no files on disk."""
+    from app.internal.media_management.config import media_management_config
+
+    lib_root = media_management_config.get_library_path(session)
+    if not lib_root:
+        return HTMLResponse("Library path not configured", status_code=400)
+
+    books = session.exec(
+        select(Audiobook).where(Audiobook.downloaded == True)  # noqa: E712
+    ).all()
+
+    removed = 0
+    for book in books:
+        path = LibraryScanner.find_book_path_by_asin(lib_root, book.asin)
+        if not path:
+            book.downloaded = False
+            session.add(book)
+            removed += 1
+    session.commit()
+
+    return HTMLResponse(f"Cleaned up {removed} books with missing files")
 
 
 @router.get("/import")
@@ -1300,6 +1387,59 @@ async def auto_import_confident(
     )
 
 
+@router.post("/import/skip-already-in-library/{session_id}")
+async def skip_already_in_library(
+    request: Request,
+    session_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    """Mark all already_in_library items as ignored so they won't be imported."""
+    import_session = session.get(LibraryImportSession, session_id)
+    if not import_session:
+        return "Session not found"
+    dupes = session.exec(
+        select(LibraryImportItem).where(
+            LibraryImportItem.session_id == session_id,
+            LibraryImportItem.already_in_library == True,  # noqa: E712
+            LibraryImportItem.status.in_(
+                [ImportItemStatus.matched, ImportItemStatus.pending]
+            ),
+        )
+    ).all()
+    for item in dupes:
+        item.status = ImportItemStatus.ignored
+    session.add_all(dupes)
+    session.commit()
+
+    items = session.exec(
+        select(LibraryImportItem).where(LibraryImportItem.session_id == session_id)
+    ).all()
+    asins = {i.match_asin for i in items if i.match_asin}
+    books_map = (
+        {
+            b.asin: b
+            for b in session.exec(
+                select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+            ).all()
+        }
+        if asins
+        else {}
+    )
+    return template_response(
+        "library/import.html",
+        request,
+        user,
+        {
+            "session": import_session,
+            "items": items,
+            "books_map": books_map,
+            "view": get_import_view(request),
+        },
+        block_name="session_status",
+    )
+
+
 @router.post("/import/selected")
 async def import_selected(
     request: Request,
@@ -1347,6 +1487,56 @@ async def import_selected(
         {
             "session": import_session,
             "items": items,
+            "books_map": books_map,
+            "view": get_import_view(request),
+        },
+        block_name="session_status",
+    )
+
+
+@router.post("/import/skip-selected")
+async def skip_selected(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    item_ids: list[str] = Form(...),
+    session_id: str = Form(...),
+):
+    """Mark selected import items as ignored."""
+    import_sid = uuid.UUID(session_id)
+    items_to_skip = session.exec(
+        select(LibraryImportItem).where(
+            LibraryImportItem.id.in_([uuid.UUID(i) for i in item_ids]),
+            LibraryImportItem.session_id == import_sid,
+        )
+    ).all()
+    for item in items_to_skip:
+        item.status = ImportItemStatus.ignored
+    session.add_all(items_to_skip)
+    session.commit()
+
+    import_session = session.get(LibraryImportSession, import_sid)
+    all_items = session.exec(
+        select(LibraryImportItem).where(LibraryImportItem.session_id == import_sid)
+    ).all()
+    asins = {i.match_asin for i in all_items if i.match_asin}
+    books_map = (
+        {
+            b.asin: b
+            for b in session.exec(
+                select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+            ).all()
+        }
+        if asins
+        else {}
+    )
+    return template_response(
+        "library/import.html",
+        request,
+        user,
+        {
+            "session": import_session,
+            "items": all_items,
             "books_map": books_map,
             "view": get_import_view(request),
         },
