@@ -1,3 +1,4 @@
+import os
 import asyncio
 import re
 from sqlmodel import Session, select
@@ -151,6 +152,16 @@ async def check_qbittorrent(session: Session):
                     name=current_torrent.get("name"),
                 )
                 download_path = current_torrent.get("content_path")
+                if not download_path:
+                    save_path = current_torrent.get("save_path", "")
+                    name = current_torrent.get("name", "")
+                    if save_path and name:
+                        download_path = os.path.join(save_path, name)
+                    else:
+                        files_list = await client.get_torrent_files(current_torrent.get("hash"))
+                        if files_list:
+                            first_file = files_list[0].get("name", "")
+                            download_path = os.path.join(save_path, first_file.split("/")[0] if "/" in first_file else first_file)
                 if download_path:
                     try:
                         # Update processing status before calling

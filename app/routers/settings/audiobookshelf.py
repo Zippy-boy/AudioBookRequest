@@ -30,7 +30,6 @@ async def read_abs(
     response = await api_read_abs(
         session=session,
         client_session=client_session,
-        admin_user=admin_user,
     )
     return template_response(
         "settings_page/audiobookshelf.html",
@@ -53,7 +52,7 @@ def update_abs_base_url(
     session: Annotated[Session, Depends(get_session)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    api_update_abs_base_url(base_url=base_url, session=session, admin_user=admin_user)
+    api_update_abs_base_url(base_url=base_url, session=session)
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
@@ -64,7 +63,7 @@ def update_abs_api_token(
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     api_update_abs_api_token(
-        api_token=api_token, session=session, admin_user=admin_user
+        api_token=api_token, session=session
     )
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
@@ -76,7 +75,7 @@ def update_abs_library(
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     api_update_abs_library(
-        library_id=library_id, session=session, admin_user=admin_user
+        library_id=library_id, session=session
     )
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
@@ -89,7 +88,6 @@ def update_abs_check_downloaded(
 ):
     api_update_abs_check_downloaded(
         session=session,
-        admin_user=admin_user,
         check_downloaded=check_downloaded,
     )
     return Response(status_code=204, headers={"HX-Refresh": "true"})

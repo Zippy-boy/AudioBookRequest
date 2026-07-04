@@ -1078,14 +1078,13 @@ async def update_match(
 @router.post("/import/item/execute/{item_id}")
 async def execute_item_import(
     item_id: uuid.UUID,
-    import_mode: Annotated[str, Form()],
     request: Request,
     background_tasks: BackgroundTasks,
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     """
-    Starts the import process for a single item.
+    Starts the import process for a single item. Always moves files.
     """
     item = session.get(LibraryImportItem, item_id)
     if not item or item.status != ImportItemStatus.matched:
@@ -1096,7 +1095,7 @@ async def execute_item_import(
     session.commit()
 
     background_tasks.add_task(
-        run_single_importer_task, item_id, import_mode == "move", user.username
+        run_single_importer_task, item_id, user.username
     )
 
     view = get_import_view(request)
@@ -1109,9 +1108,9 @@ async def execute_item_import(
     )
 
 
-async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, username: str):
+async def run_single_importer_task(item_id: uuid.UUID, username: str):
     """
-    Background task to execute a single item import.
+    Background task to execute a single item import. Always moves files.
     """
     from app.util.db import get_session
     from app.internal.processing.processor import process_completed_download
@@ -1130,7 +1129,6 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
             import_session and import_session.root_path == "__INTERNAL_LIBRARY__"
         )
 
-        # Ensure book exists in DB
         book = db_session.get(Audiobook, item.match_asin)
         if not book:
             from app.internal.book_search import get_book_by_asin
@@ -1140,14 +1138,12 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
                 await get_book_by_asin(client_session, item.match_asin)
             book = db_session.get(Audiobook, item.match_asin)
 
-        # Guard: Check if already in library (and not in reconciliation mode)
         if not is_reconciliation and book and book.downloaded:
             item.status = ImportItemStatus.imported
             db_session.add(item)
             db_session.commit()
             return
 
-        # 1. Ensure we have a dummy request
         req = db_session.exec(
             select(AudiobookRequest).where(
                 AudiobookRequest.asin == item.match_asin,
@@ -1165,13 +1161,11 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
             db_session.commit()
             db_session.refresh(req)
 
-        # 2. Call processor
-        # If reconciliation, we force organization (rename/move) to standardized paths
         await process_completed_download(
             db_session,
             req,
             item.source_path,
-            delete_source=True if is_reconciliation else move_files,
+            delete_source=True,
         )
 
         item.status = ImportItemStatus.imported
@@ -1193,14 +1187,13 @@ async def run_single_importer_task(item_id: uuid.UUID, move_files: bool, usernam
 @router.post("/import/execute/{session_id}")
 async def execute_import(
     session_id: uuid.UUID,
-    import_mode: Annotated[str, Form()],
     request: Request,
     background_tasks: BackgroundTasks,
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     """
-    Starts the actual file moving/copying process.
+    Starts the actual file moving process for all matched items. Always moves files.
     """
     import_session = session.get(LibraryImportSession, session_id)
     if not import_session:
@@ -1211,10 +1204,9 @@ async def execute_import(
     session.commit()
 
     background_tasks.add_task(
-        run_importer_task, session_id, import_mode == "move", user.username
+        run_importer_task, session_id, user.username
     )
 
-    # Pre-fetch for the response
     items = session.exec(
         select(LibraryImportItem).where(LibraryImportItem.session_id == session_id)
     ).all()
@@ -1244,7 +1236,125 @@ async def execute_import(
     )
 
 
-async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: str):
+@router.post("/import/auto-confident/{session_id}")
+async def auto_import_confident(
+    session_id: uuid.UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    """
+    Auto-import all items with match_score >= 0.85 (confident matches).
+    Always moves files.
+    """
+    import_session = session.get(LibraryImportSession, session_id)
+    if not import_session:
+        return "Session not found"
+
+    confident_items = session.exec(
+        select(LibraryImportItem).where(
+            LibraryImportItem.session_id == session_id,
+            LibraryImportItem.status == ImportItemStatus.matched,
+            LibraryImportItem.match_score >= 0.85,
+        )
+    ).all()
+
+    if not confident_items:
+        return HTMLResponse("<script>toast('No confident matches found to auto-import.', 'info');</script>")
+
+    import_session.status = ImportSessionStatus.importing
+    session.add(import_session)
+    session.commit()
+
+    background_tasks.add_task(
+        run_importer_task, session_id, user.username
+    )
+
+    items = session.exec(
+        select(LibraryImportItem).where(LibraryImportItem.session_id == session_id)
+    ).all()
+    asins = {i.match_asin for i in items if i.match_asin}
+    books_map = (
+        {
+            b.asin: b
+            for b in session.exec(
+                select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+            ).all()
+        }
+        if asins
+        else {}
+    )
+
+    return template_response(
+        "library/import.html",
+        request,
+        user,
+        {
+            "session": import_session,
+            "items": items,
+            "books_map": books_map,
+            "view": get_import_view(request),
+        },
+        block_name="session_status",
+    )
+
+
+@router.post("/import/selected")
+async def import_selected(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    item_ids: list[str] = Form(...),
+    session_id: str = Form(...),
+):
+    """
+    Import only the selected items by their IDs. Always moves files.
+    """
+    import_sid = uuid.UUID(session_id)
+    import_session = session.get(LibraryImportSession, import_sid)
+    if not import_session:
+        return "Session not found"
+
+    import_session.status = ImportSessionStatus.importing
+    session.add(import_session)
+    session.commit()
+
+    background_tasks.add_task(
+        run_selected_importer_task, import_sid, item_ids, user.username
+    )
+
+    items = session.exec(
+        select(LibraryImportItem).where(LibraryImportItem.session_id == import_sid)
+    ).all()
+    asins = {i.match_asin for i in items if i.match_asin}
+    books_map = (
+        {
+            b.asin: b
+            for b in session.exec(
+                select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+            ).all()
+        }
+        if asins
+        else {}
+    )
+
+    return template_response(
+        "library/import.html",
+        request,
+        user,
+        {
+            "session": import_session,
+            "items": items,
+            "books_map": books_map,
+            "view": get_import_view(request),
+        },
+        block_name="session_status",
+    )
+
+
+async def run_importer_task(session_id: uuid.UUID, username: str):
     """
     Background task to execute the import in parallel (5 at a time).
     """
@@ -1315,12 +1425,11 @@ async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: s
                         db_session.commit()
                         db_session.refresh(req)
 
-                    # If reconciliation, force organization into standardized paths
                     await process_completed_download(
                         db_session,
                         req,
                         item.source_path,
-                        delete_source=True if is_reconciliation else move_files,
+                        delete_source=True,
                     )
 
                     item.status = ImportItemStatus.imported
@@ -1340,6 +1449,108 @@ async def run_importer_task(session_id: uuid.UUID, move_files: bool, username: s
 
     # Launch all tasks
     tasks = [import_item_task(iid) for iid in item_ids]
+    if tasks:
+        await asyncio.gather(*tasks)
+
+    with next(get_session()) as db_session:
+        import_session = db_session.get(LibraryImportSession, session_id)
+        if import_session:
+            import_session.status = ImportSessionStatus.completed
+            db_session.add(import_session)
+            db_session.commit()
+
+
+async def run_selected_importer_task(session_id: uuid.UUID, item_ids: list[str], username: str):
+    """
+    Background task to import selected items. Always moves files.
+    """
+    from app.util.db import get_session
+    from app.internal.processing.processor import process_completed_download
+    from app.internal.models import AudiobookRequest, Audiobook, LibraryImportSession
+    import asyncio
+
+    with next(get_session()) as db_session:
+        import_session_obj = db_session.get(LibraryImportSession, session_id)
+        is_reconciliation = (
+            import_session_obj
+            and import_session_obj.root_path == "__INTERNAL_LIBRARY__"
+        )
+        parsed_ids = []
+        for iid_str in item_ids:
+            try:
+                parsed_ids.append(uuid.UUID(iid_str))
+            except ValueError:
+                pass
+
+    semaphore = asyncio.Semaphore(5)
+
+    async def import_item_task(item_id: uuid.UUID):
+        async with semaphore:
+            with next(get_session()) as db_session:
+                try:
+                    item = db_session.get(LibraryImportItem, item_id)
+                    if not item or not item.match_asin:
+                        return
+
+                    item.status = ImportItemStatus.pending
+                    db_session.add(item)
+                    db_session.commit()
+
+                    book = db_session.get(Audiobook, item.match_asin)
+                    if not book:
+                        from app.internal.book_search import get_book_by_asin
+                        import aiohttp
+
+                        async with aiohttp.ClientSession() as client_session:
+                            await get_book_by_asin(client_session, item.match_asin)
+                        book = db_session.get(Audiobook, item.match_asin)
+
+                    if not is_reconciliation and book and book.downloaded:
+                        item.status = ImportItemStatus.imported
+                        db_session.add(item)
+                        db_session.commit()
+                        return
+
+                    req = db_session.exec(
+                        select(AudiobookRequest).where(
+                            AudiobookRequest.asin == item.match_asin,
+                            AudiobookRequest.user_username == username,
+                        )
+                    ).first()
+
+                    if not req:
+                        req = AudiobookRequest(
+                            asin=item.match_asin,
+                            user_username=username,
+                            processing_status="importing",
+                        )
+                        db_session.add(req)
+                        db_session.commit()
+                        db_session.refresh(req)
+
+                    await process_completed_download(
+                        db_session,
+                        req,
+                        item.source_path,
+                        delete_source=True,
+                    )
+
+                    item.status = ImportItemStatus.imported
+                    db_session.add(item)
+                    db_session.commit()
+                except Exception as e:
+                    db_session.rollback()
+                    logger.error(
+                        "Selected import failed for item", item_id=item_id, error=str(e)
+                    )
+                    item = db_session.get(LibraryImportItem, item_id)
+                    if item:
+                        item.status = ImportItemStatus.error
+                        item.error_msg = str(e)
+                        db_session.add(item)
+                        db_session.commit()
+
+    tasks = [import_item_task(iid) for iid in parsed_ids]
     if tasks:
         await asyncio.gather(*tasks)
 

@@ -12,8 +12,17 @@
     data-match="{{ (match_title or '')|lower }}"
     data-confidence="{{ item.match_score or 0 }}"
     data-status="{{ status_value }}">
+    <td class="py-3 w-10 align-top">
+        {% if status_value == 'matched' %}
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary item-checkbox" value="{{ item.id }}"
+               onchange="updateImportSelectedButton()" />
+        {% endif %}
+    </td>
     <td class="py-3 pr-4 align-top">
         <div class="font-semibold text-xs truncate max-w-[220px]" title="{{ item.source_path|basename }}">{{ item.source_path|basename }}</div>
+        {% if item.detected_title %}
+        <div class="text-[10px] opacity-50 truncate max-w-[220px] mt-0.5" title="{{ item.detected_title }}">{{ item.detected_title }}</div>
+        {% endif %}
     </td>
     <td class="py-3 align-top">
         {% if item.match_asin %}
@@ -45,7 +54,6 @@
                       hx-disabled-elt="this button"
                       hx-indicator="this .import-indicator"
                       class="w-full md:w-auto">     
-                    <input type="hidden" name="import_mode" id="import-mode-hidden-{{ item.id }}" value="copy" />
                     <button type="submit" class="btn btn-xs btn-success font-black uppercase tracking-tighter w-full md:w-auto inline-flex items-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/60">
                         <span>Import</span>
                         <span class="loading loading-spinner loading-xs htmx-indicator import-indicator" style="display: none;"></span>

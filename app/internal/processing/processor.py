@@ -57,7 +57,7 @@ async def process_completed_download(
     session: Session,
     book_request: AudiobookRequest,
     download_path: str,
-    delete_source: bool = False,
+    delete_source: bool = True,
     collection: bool = False,
     collection_label: str | None = None,
     preserve_source: bool = False,
@@ -138,9 +138,7 @@ async def process_completed_download(
 
                 await run_importer_task(
                     import_session.id,
-                    move_files=False,
                     username=book_request.user_username,
-                    force_copy=True,
                 )
                 session.refresh(import_session)
                 if import_session.status == ImportSessionStatus.failed:

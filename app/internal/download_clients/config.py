@@ -93,5 +93,4 @@ class DownloadClientConfig(StringConfigCache[DownloadClientConfigKey]):
     def set_qbit_complete_action(self, session: Session, action: str):
         self.set(session, "qbit_complete_action", action)
 
-
 download_client_config = DownloadClientConfig()

@@ -42,7 +42,6 @@ class QbittorrentClient:
 
     async def _login(self, client: aiohttp.ClientSession) -> tuple[bool, int, str]:
         url = f"{self.base_url}/api/v2/auth/login"
-        # logger.debug("qBittorrent: Attempting login", url=url, user=self.username)
         data = {"username": self.username, "password": self.password}
         self.headers = {
             "User-Agent": "Narrarr",
@@ -50,7 +49,9 @@ class QbittorrentClient:
         try:
             async with client.post(url, data=data, headers=self.headers) as resp:
                 text = await resp.text()
-                if resp.status == 200:
+                # qBittorrent v4.6+ returns 204 No Content on success (no body)
+                # Older versions return 200 with "Ok." text
+                if resp.status in (200, 204):
                     self.cookies = resp.cookies
                     return True, resp.status, text
                 logger.error(
@@ -159,6 +160,24 @@ class QbittorrentClient:
             return False, 0, "No host configured"
         async with aiohttp.ClientSession() as client:
             return await self._login(client)
+
+    async def get_torrent_files(self, torrent_hash: str) -> List[Dict[str, Any]]:
+        if not self.host:
+            return []
+        async with aiohttp.ClientSession() as client:
+            success, _, _ = await self._login(client)
+            if not success:
+                return []
+            url = f"{self.base_url}/api/v2/torrents/files"
+            params = {"hash": torrent_hash}
+            try:
+                async with client.get(url, params=params, cookies=self.cookies) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    return []
+            except Exception as e:
+                logger.error("qBittorrent get_torrent_files exception", error=str(e))
+                return []
 
     async def add_torrent_tags(self, hash: str, tags: List[str]) -> bool:
         if not self.host:
