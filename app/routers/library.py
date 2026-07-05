@@ -34,37 +34,47 @@ async def bulk_delete(
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
     asins: list[str] = Form(...),
-    delete_files: bool = Form(False),
 ):
     """
-    Bulk delete books from the library.
+    Delete selected books from the library. Removes from DB and optionally deletes files.
     """
     from app.internal.media_management.config import media_management_config
 
     lib_root = media_management_config.get_library_path(session)
+    removed = 0
 
     for asin in asins:
         book = session.get(Audiobook, asin)
         if not book:
             continue
 
-        if delete_files and lib_root:
-            # This is a bit risky but the user asked for Arr-style management
-            # We need to find the folder. We'll use a simplified version of the processor logic.
-            # author = book.authors[0] if book.authors else "Unknown"
-            # year = book.release_date.year if book.release_date else "Unknown"
-            # folder_name = f"{author}/{book.title} ({year})"  # Fallback logic
-            # Better: try to find it by scanning if we had a path saved.
-            # For now, we'll rely on the DB delete mostly, but Arr apps do file deletion.
-            # We will mark it as NOT downloaded instead of full disk wipe unless we are sure.
-            book.downloaded = False
-        else:
-            book.downloaded = False
+        # Delete files from disk if they exist
+        if lib_root:
+            path = LibraryScanner.find_book_path_by_asin(lib_root, asin)
+            if path:
+                import shutil
 
-        session.add(book)
+                try:
+                    shutil.rmtree(path)
+                except Exception as e:
+                    logger.warning("Could not delete files for book", asin=asin, path=path, error=str(e))
+
+        # Delete associated requests
+        requests = session.exec(
+            select(AudiobookRequest).where(AudiobookRequest.asin == asin)
+        ).all()
+        for req in requests:
+            session.delete(req)
+
+        # Delete the book itself
+        session.delete(book)
+        removed += 1
 
     session.commit()
-    return HTMLResponse("<script>window.location.reload();</script>")
+    return HTMLResponse(
+        f"<script>toast('Removed {removed} book(s) from library.', 'success'); "
+        f"window.location.reload();</script>"
+    )
 
 
 @router.post("/bulk/reprocess")
