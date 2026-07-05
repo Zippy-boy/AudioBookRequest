@@ -43,6 +43,8 @@ async def bulk_delete(
     lib_root = media_management_config.get_library_path(session)
     removed = 0
 
+    import shutil
+
     for asin in asins:
         book = session.get(Audiobook, asin)
         if not book:
@@ -52,18 +54,22 @@ async def bulk_delete(
         if lib_root:
             path = LibraryScanner.find_book_path_by_asin(lib_root, asin)
             if path:
-                import shutil
-
                 try:
                     shutil.rmtree(path)
                 except Exception as e:
                     logger.warning("Could not delete files for book", asin=asin, path=path, error=str(e))
 
+        # Nullify any LibraryImportItem references to this ASIN (FK constraint)
+        for item in session.exec(
+            select(LibraryImportItem).where(LibraryImportItem.match_asin == asin)
+        ).all():
+            item.match_asin = None
+            session.add(item)
+
         # Delete associated requests
-        requests = session.exec(
+        for req in session.exec(
             select(AudiobookRequest).where(AudiobookRequest.asin == asin)
-        ).all()
-        for req in requests:
+        ).all():
             session.delete(req)
 
         # Delete the book itself
