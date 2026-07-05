@@ -1,6 +1,6 @@
 {% extends "library/base_library.html" %}
 {% set page = 'import' %}
-{% set view = view|default('table') %}
+{% set view = view|default('grid') %}
 {% block head %}
 <title>Library Import</title>
 <style>
@@ -10,259 +10,153 @@
 {% endblock head %}
 
 {% block content %}
-<div class="w-full">
-    <div class="flex flex-col gap-6">
-        <!-- Start New Scan Section -->
-        <div class="app-card overflow-hidden">
-        <div class="card-body p-6">
-            <h2 class="card-title text-xs font-black opacity-50 uppercase tracking-widest text-left mb-4">New Import Scan</h2>
-            <form hx-post="{{ base_url }}/library/import/scan?view={{ view }}" hx-target="#session-status-container" hx-swap="innerHTML" class="flex flex-col gap-4">
-                <div class="form-control w-full text-left">
-                    <div class="join w-full rounded-lg overflow-hidden">
-                        <input type="text" name="path" placeholder="/mnt/books/incoming" class="input input-bordered join-item w-full focus:input-primary font-medium" required />
-                        <button type="submit" class="btn btn-primary join-item px-8 rounded-none">
-                            Scan
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                            </svg>
+<div class="flex flex-col gap-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h2 class="text-3xl font-black">Import</h2>
+            <p class="text-sm opacity-60">Import books from your library folder</p>
+        </div>
+        <div class="flex gap-2 items-center">
+            <button class="btn btn-primary btn-sm rounded-xl font-black uppercase text-[10px]"
+                    hx-get="{{ base_url }}/library/import?view={% if view == 'grid' %}table{% else %}grid{% endif %}"
+                    hx-target="body"
+                    hx-swap="innerHTML"
+                    hx-push-url="true">
+                {% if view == 'grid' %}List View{% else %}Grid View{% endif %}
+            </button>
+        </div>
+    </div>
+
+    <!-- Library Path Status -->
+    {% if lib_root %}
+    <div class="app-card p-4 flex items-center gap-3">
+        <div class="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+            </svg>
+        </div>
+        <div class="flex-1 min-w-0">
+            <p class="text-xs font-black opacity-60 uppercase tracking-widest">Library Folder</p>
+            <p class="text-sm font-mono truncate">{{ lib_root }}</p>
+        </div>
+        <button class="btn btn-xs btn-ghost font-black text-[9px] uppercase"
+                hx-post="{{ base_url }}/library/import/scan"
+                hx-target="#import-grid-container"
+                hx-swap="innerHTML"
+                hx-on::before-request="document.getElementById('import-grid-container').innerHTML = '<div class=col-span-full class=py-16><div class=loading></div></div>';"
+                hx-vals='{"path": "{{ lib_root }}"}'>
+            Rescan
+        </button>
+    </div>
+    {% else %}
+    <div class="app-card p-4 text-center py-8">
+        <p class="font-black text-sm opacity-60">No library folder configured</p>
+        <p class="text-xs opacity-40 mt-1">Set your library path in <a href="{{ base_url }}/settings/media-management" class="text-primary hover:underline">Media Management settings</a></p>
+    </div>
+    {% endif %}
+
+    <!-- Scan Other Path Form (collapsible) -->
+    <details class="app-card overflow-hidden">
+        <summary class="card-body p-4 cursor-pointer hover:bg-base-200/50 transition font-black text-xs uppercase tracking-widest opacity-60">
+            Scan a different path
+        </summary>
+        <div class="px-4 pb-4">
+            <form hx-post="{{ base_url }}/library/import/scan?view={{ view }}" hx-target="#import-grid-container" hx-swap="innerHTML" class="flex gap-2">
+                <input type="text" name="path" placeholder="/mnt/books/incoming" class="input input-bordered input-sm flex-1 rounded-xl font-medium" required />
+                <button type="submit" class="btn btn-primary btn-sm rounded-xl font-black uppercase text-[10px]">Scan</button>
+            </form>
+        </div>
+    </details>
+
+    <!-- Import Grid / Results -->
+    <div id="import-grid-container">
+        {% block session_status %}
+
+        {% if session %}
+            {% set total_items = items|length %}
+            {% set pending_items = items|selectattr('status', 'equalto', 'pending')|list %}
+            {% set imported_items = items|selectattr('status', 'equalto', 'imported')|list %}
+            {% set matched_items = items|selectattr('status', 'equalto', 'matched')|list %}
+
+            {% if session.status in ['scanning', 'importing'] and total_items == 0 %}
+            <!-- Scanning state -->
+            <div class="flex flex-col items-center justify-center py-16 gap-4">
+                <span class="loading loading-spinner loading-lg text-primary"></span>
+                <div class="text-center">
+                    <p class="font-black text-sm opacity-60">Scanning library folder</p>
+                    <p class="text-xs opacity-40 mt-1">This may take a moment for large libraries</p>
+                </div>
+            </div>
+            <div hx-get="{{ base_url }}/library/import/session/{{ session.id }}?view={{ view }}" hx-trigger="every 3s" hx-target="#import-grid-container" hx-swap="innerHTML"></div>
+            {% elif session.status in ['scanning', 'importing'] and total_items > 0 %}
+            <!-- Items found, scan still running -->
+            <div class="flex items-center gap-3 mb-4">
+                <span class="loading loading-spinner loading-sm text-primary"></span>
+                <span class="text-xs font-black opacity-60 uppercase tracking-widest">Scanning — {{ total_items }} files found so far</span>
+            </div>
+            <div hx-get="{{ base_url }}/library/import/session/{{ session.id }}?view={{ view }}" hx-trigger="every 3s" hx-target="#import-grid-container" hx-swap="innerHTML"></div>
+            {% include "library/import_results.html" %}
+            {% else %}
+            <!-- Review ready or completed — show results -->
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="text-xs font-black uppercase tracking-widest opacity-40">{{ total_items }} files</div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-widest opacity-40">Sort</span>
+                        <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="source" data-sort-type="string">
+                            <span>Source</span><span class="ml-1" data-sort-arrow></span>
+                        </button>
+                        <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="match" data-sort-type="string">
+                            <span>Title</span><span class="ml-1" data-sort-arrow></span>
+                        </button>
+                        <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="confidence" data-sort-type="number">
+                            <span>Confidence</span><span class="ml-1" data-sort-arrow></span>
                         </button>
                     </div>
                 </div>
-            </form>
-        </div>
-        </div>
+                {% if session.status == 'review_ready' %}
+                <div class="flex items-center gap-2">
+                    <button class="btn btn-success btn-xs rounded-xl font-black uppercase text-[9px]"
+                            hx-post="{{ base_url }}/library/import/auto-confident/{{ session.id }}?view={{ view }}"
+                            hx-target="#import-grid-container"
+                            hx-swap="innerHTML"
+                            {% if matched_items|length == 0 %}disabled{% endif %}>
+                        Auto Import Confident
+                    </button>
+                    <button class="btn btn-ghost btn-xs rounded-xl font-black uppercase text-[9px] text-warning"
+                            hx-post="{{ base_url }}/library/import/skip-already-in-library/{{ session.id }}?view={{ view }}"
+                            hx-target="#import-grid-container"
+                            hx-swap="innerHTML"
+                            {% set skip_count = items|selectattr('already_in_library', 'equalto', True)|list|length %}{% if skip_count == 0 %}disabled{% endif %}>
+                        Skip Duplicates
+                    </button>
+                    <button class="btn btn-primary btn-xs rounded-xl font-black uppercase text-[9px]"
+                            id="import-selected-btn"
+                            onclick="importSelected()"
+                            disabled>
+                        Import Selected
+                    </button>
+                    <button class="btn btn-ghost btn-xs rounded-xl font-black uppercase text-[9px] text-error"
+                            id="skip-selected-btn"
+                            onclick="skipSelected()"
+                            disabled>
+                        Skip Selected
+                    </button>
+                    <form hx-post="{{ base_url }}/library/import/execute/{{ session.id }}?view={{ view }}" hx-target="#import-grid-container" hx-swap="innerHTML" class="inline">
+                        <button type="submit" class="btn btn-ghost btn-xs rounded-xl font-black uppercase text-[9px]" {% if matched_items|length == 0 %}disabled{% endif %}>
+                            Import All ({{ matched_items|length }})
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
 
-        <div class="h-px w-full bg-base-300/60"></div>
+            {% include "library/import_results.html" %}
+            {% endif %}
 
-        <!-- Active/Recent Sessions Section -->
-        <div id="session-status-container">
-
-            {% block session_status %}
-
-            {% if session %}
-
-                {% set total_items = items|length %}
-
-                {% set pending_items = items|selectattr('status', 'equalto', 'pending')|list %}
-
-                {% set imported_items = items|selectattr('status', 'equalto', 'imported')|list %}
-
-                {% set matched_items = items|selectattr('status', 'equalto', 'matched')|list %}
-
-                            <div hx-get="{{ base_url }}/library/import/session/{{ session.id }}?view={{ view }}" 
-                                 hx-trigger="{% if session.status in ['scanning', 'importing'] or pending_items|length > 0 %}every 3s{% endif %}"
-                                 hx-swap="innerHTML"
-                                 hx-target="#session-status-container"
-                                 class="flex flex-col gap-6">
-
-                    <!-- Status Header -->
-                    <div class="app-card p-4 relative overflow-hidden">
-                        <div class="flex items-center gap-4 z-10">
-                            <div class="shrink-0">
-                        {% if session.status in ['scanning', 'importing'] or pending_items|length > 0 %}
-                                    <div class="animate-pulse size-6 rounded-full bg-primary/20 border border-primary/30"></div>
-                                {% else %}
-                                    <div class="bg-success/20 text-success p-2 rounded-full">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor" class="w-5 h-5"> 
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                        </svg>
-                                    </div>
-                                {% endif %}
-                            </div>
-
-                            <div class="text-left">
-                                <p class="font-black text-sm uppercase opacity-80 leading-none mb-1">
-                                    {{ session.status|replace('_', ' ')|title }}
-                                    {% if session.status == 'importing' %}
-                                        <span class="ml-2 text-[10px] lowercase font-normal opacity-50">({{ imported_items|length }}/{{ total_items }})</span>
-                                    {% endif %}
-                                </p>
-                                <p class="text-[10px] opacity-40 font-mono truncate max-w-xs sm:max-w-md">{{ session.root_path }}</p>
-                            </div>
-                        </div>
-
-                        {% if session.status == 'review_ready' %}
-                        <div class="flex items-center gap-2 bg-base-300/50 p-1.5 pr-2 rounded-2xl border border-base-content/5 shadow-sm z-10 mt-3">
-                            <!-- Auto Import Confident -->
-                            <button class="btn btn-success rounded-xl px-4 shadow-md shadow-success/20 font-black uppercase tracking-wider btn-sm h-10 min-h-0"
-                                    hx-post="{{ base_url }}/library/import/auto-confident/{{ session.id }}?view={{ view }}"
-                                    hx-target="#session-status-container"
-                                    hx-swap="innerHTML"
-                                    hx-on::before-request="this.classList.add('loading'); this.innerText = 'Auto-Importing...';"
-                                    {% if matched_items|length == 0 %}disabled{% endif %}>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4 mr-1">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                </svg>
-                                Auto Import Confident
-                            </button>
-
-                            <div class="divider divider-horizontal m-0 w-px h-6 bg-base-content/10"></div>
-
-                            <!-- Import Selected -->
-                            <button class="btn btn-primary rounded-xl px-4 shadow-md shadow-primary/20 font-black uppercase tracking-wider btn-sm h-10 min-h-0"
-                                    id="import-selected-btn"
-                                    onclick="importSelected()"
-                                    disabled>
-                                Import Selected
-                            </button>
-
-                            <!-- Skip Selected -->
-                            <button class="btn btn-ghost rounded-xl px-4 font-black uppercase tracking-wider btn-sm h-10 min-h-0 text-error"
-                                    id="skip-selected-btn"
-                                    onclick="skipSelected()"
-                                    disabled>
-                                Skip Selected
-                            </button>
-
-                            <!-- Skip Already in Library -->
-                            <form hx-post="{{ base_url }}/library/import/skip-already-in-library/{{ session.id }}?view={{ view }}"
-                                  hx-target="#session-status-container"
-                                  hx-swap="innerHTML"
-                                  hx-on::before-request="this.querySelector('button').classList.add('loading'); this.querySelector('button').innerText = 'Skipping...';"
-                                  class="flex items-center">
-                                <button type="submit" class="btn btn-ghost rounded-xl px-4 font-black uppercase tracking-wider btn-sm h-10 min-h-0 text-warning"
-                                        {% set skip_count = items|selectattr('already_in_library', 'equalto', True)|list|length %}{% if skip_count == 0 %}disabled{% endif %}>
-                                    Skip Already in Library ({{ skip_count }})
-                                </button>
-                            </form>
-
-                            <div class="divider divider-horizontal m-0 w-px h-6 bg-base-content/10"></div>
-
-                            <!-- Import All -->
-                            <form hx-post="{{ base_url }}/library/import/execute/{{ session.id }}?view={{ view }}"
-                                  hx-target="#session-status-container"
-                                  hx-swap="innerHTML"
-                                  hx-on::before-request="this.querySelector('button').classList.add('loading'); this.querySelector('button').innerText = 'Importing...';"
-                                  class="flex items-center">
-                                <button type="submit" class="btn btn-ghost rounded-xl px-4 font-black uppercase tracking-wider btn-sm h-10 min-h-0"
-                                        {% if matched_items|length == 0 %}disabled{% endif %}>
-                                    Import All ({{ matched_items|length }})
-                                </button>
-                            </form>
-                        </div>
-                        {% endif %}
-
-                        <!-- Background Progress Bar for Importing -->
-                        {% if session.status == 'importing' and total_items > 0 %}
-                        <div class="absolute bottom-0 left-0 h-1 bg-primary/20 w-full">
-                            <div class="h-full bg-primary transition-all duration-500" style="width: {{ (imported_items|length / total_items * 100)|int }}%"></div>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    <!-- Live Results -->
-                    {% block session_results %}
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                        <div class="flex items-center gap-3">
-                            <div class="text-[10px] font-black uppercase tracking-widest opacity-40">Results</div>
-                            <div class="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
-                                <span class="opacity-40">Sort</span>
-                                <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="source" data-sort-type="string">
-                                    <span>Source</span><span class="ml-1" data-sort-arrow></span>
-                                </button>
-                                <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="match" data-sort-type="string">
-                                    <span>Matched To</span><span class="ml-1" data-sort-arrow></span>
-                                </button>
-                                <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="confidence" data-sort-type="number">
-                                    <span>Confidence</span><span class="ml-1" data-sort-arrow></span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span id="import-view-indicator" class="loading loading-spinner loading-xs text-primary htmx-indicator"></span>
-                            <div class="join">
-                                <button class="btn btn-xs join-item font-black uppercase text-[9px] {% if view != 'grid' %}btn-primary{% else %}btn-ghost{% endif %}"
-                                        hx-get="{{ base_url }}/library/import/session/{{ session.id }}?view=table"
-                                        hx-target="#session-status-container"
-                                        hx-swap="innerHTML"
-                                        hx-indicator="#import-view-indicator"
-                                        hx-sync="#session-status-container:replace">
-                                    List
-                                </button>
-                                <button class="btn btn-xs join-item font-black uppercase text-[9px] {% if view == 'grid' %}btn-primary{% else %}btn-ghost{% endif %}"
-                                        hx-get="{{ base_url }}/library/import/session/{{ session.id }}?view=grid"
-                                        hx-target="#session-status-container"
-                                        hx-swap="innerHTML"
-                                        hx-indicator="#import-view-indicator"
-                                        hx-sync="#session-status-container:replace">
-                                    Grid
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {% if view == 'grid' %}
-                    <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 mt-2 pb-24" data-import-grid>
-                        {% if items %}
-                            {% for item in items %}
-                                {% include "library/import_card.html" %}
-                            {% endfor %}
-                        {% else %}
-                            {% if session.status in ['scanning', 'importing'] or pending_items|length > 0 %}
-                                {% include "library/import_skeletons.html" %}
-                            {% else %}
-                                <div class="col-span-full py-16 flex flex-col items-center justify-center opacity-40">
-                                    <span class="font-black uppercase text-xs">No items found</span>
-                                    <span class="text-[10px] font-mono opacity-50 mt-2">Try a different path</span>
-                                </div>
-                            {% endif %}
-                        {% endif %}
-                    </div>
-                    {% else %}
-                    <div class="mt-2 pb-24">
-                        <div class="app-card overflow-x-auto">
-                            <table class="table table-sm w-full min-w-0 md:min-w-[760px]">
-                                <thead>
-                                    <tr class="text-[10px] font-black uppercase tracking-widest">
-                                        <th class="py-3 w-10">
-                                            <input type="checkbox" id="select-all-checkbox" class="checkbox checkbox-xs checkbox-primary"
-                                                   onchange="toggleSelectAll(this.checked)" />
-                                        </th>
-                                        <th class="py-3">
-                                            <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="source" data-sort-type="string">
-                                                <span>Source</span><span class="ml-1" data-sort-arrow></span>
-                                            </button>
-                                        </th>
-                                        <th class="py-3">
-                                            <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="match" data-sort-type="string">
-                                                <span>Matched To</span><span class="ml-1" data-sort-arrow></span>
-                                            </button>
-                                        </th>
-                                        <th class="py-3 text-center">
-                                            <button type="button" class="import-sort-btn cursor-pointer text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 transition" data-sort-key="confidence" data-sort-type="number">
-                                                <span>Confidence</span><span class="ml-1" data-sort-arrow></span>
-                                            </button>
-                                        </th>
-                                        <th class="py-3 text-right opacity-60">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody data-import-table>
-                                    {% if items %}
-                                        {% for item in items %}
-                                            {% include "library/import_row.html" %}
-                                        {% endfor %}
-                                    {% else %}
-                                        {% if session.status in ['scanning', 'importing'] or pending_items|length > 0 %}
-                                            {% include "library/import_skeletons.html" %}
-                                        {% else %}
-                                            <tr>
-                                                <td colspan="5" class="py-16 text-center opacity-40">
-                                                    <div class="font-black uppercase text-xs">No items found</div>
-                                                    <div class="text-[10px] font-mono opacity-50 mt-2">Try a different path</div>
-                                                </td>
-                                            </tr>
-                                        {% endif %}
-                                    {% endif %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    {% endblock session_results %}
-
-                </div>            </div>
         {% elif sessions %}
+            <!-- No active session, show recent -->
             <div class="flex flex-col gap-4 text-left">
                 <h2 class="text-xs font-black opacity-40 uppercase tracking-widest">Recent Activity</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -281,12 +175,17 @@
                                     {% else %}badge-neutral{% endif %} text-[8px] rounded-md">{{ s.status }}</span>
                             </div>
                             <div class="card-actions justify-end mt-3">
-                                <button hx-get="{{ base_url }}/library/import/session/{{ s.id }}?view={{ view }}" hx-target="#session-status-container" class="btn btn-xs rounded-lg btn-ghost bg-base-200 font-bold">Open Session</button>
+                                <button hx-get="{{ base_url }}/library/import/session/{{ s.id }}?view={{ view }}" hx-target="#import-grid-container" class="btn btn-xs rounded-lg btn-ghost bg-base-200 font-bold">Open Session</button>
                             </div>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
+            </div>
+        {% elif not lib_root %}
+            <!-- No library path, nothing to show -->
+            <div class="text-center py-16 opacity-40">
+                <p class="font-black text-xs uppercase">Configure a library path to get started</p>
             </div>
         {% endif %}
         {% endblock session_status %}
@@ -387,11 +286,35 @@
         }
     }
 
+    function importSelected() {
+        const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
+        if (checked.length === 0) return;
+        const sessionId = '{{ session.id|default('') }}';
+        const view = '{{ view|default('grid') }}';
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+        Array.from(checked).forEach(cb => formData.append('item_ids', cb.value));
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '{{ base_url|default('') }}/library/import/selected?view=' + view, true);
+        xhr.setRequestHeader('HX-Request', 'true');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                document.getElementById('import-grid-container').innerHTML = xhr.responseText;
+            }
+        };
+        xhr.send(formData);
+        const btn = document.getElementById('import-selected-btn');
+        if (btn) {
+            btn.classList.add('loading');
+            btn.innerText = 'Importing...';
+        }
+    }
+
     function skipSelected() {
         const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
         if (checked.length === 0) return;
         const sessionId = '{{ session.id|default('') }}';
-        const view = '{{ view|default('table') }}';
+        const view = '{{ view|default('grid') }}';
         const formData = new FormData();
         formData.append('session_id', sessionId);
         Array.from(checked).forEach(cb => formData.append('item_ids', cb.value));
@@ -400,39 +323,10 @@
         xhr.setRequestHeader('HX-Request', 'true');
         xhr.onload = function() {
             if (xhr.status === 200) {
-                document.getElementById('session-status-container').innerHTML = xhr.responseText;
+                document.getElementById('import-grid-container').innerHTML = xhr.responseText;
             }
         };
         xhr.send(formData);
-    }
-
-    function importSelected() {
-        const checked = document.querySelectorAll('[data-import-item] .item-checkbox:checked');
-        if (checked.length === 0) return;
-
-        const sessionId = '{{ session.id|default('') }}';
-        const itemIds = Array.from(checked).map(cb => cb.value);
-        const view = '{{ view|default('table') }}';
-
-        const formData = new FormData();
-        formData.append('session_id', sessionId);
-        itemIds.forEach(id => formData.append('item_ids', id));
-
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '{{ base_url|default('') }}/library/import/selected?view=' + view, true);
-        xhr.setRequestHeader('HX-Request', 'true');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                document.getElementById('session-status-container').innerHTML = xhr.responseText;
-            }
-        };
-        xhr.send(formData);
-
-        const btn = document.getElementById('import-selected-btn');
-        if (btn) {
-            btn.classList.add('loading');
-            btn.innerText = 'Importing...';
-        }
     }
 
     document.addEventListener("click", (e) => {
@@ -460,7 +354,7 @@
     });
 
     document.addEventListener("htmx:afterSwap", (e) => {
-        const container = document.getElementById("session-status-container");
+        const container = document.getElementById("import-grid-container");
         if (container && container.contains(e.target)) {
             applyImportSort();
             updateImportSelectedButton();

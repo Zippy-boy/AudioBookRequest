@@ -830,23 +830,81 @@ async def cleanup_missing(
 @router.get("/import")
 async def import_page(
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
     """
-    Main import page. Shows current active sessions or a form to start a new one.
+    Main import page. Auto-scans the library folder and shows unimported books as a grid.
     """
-    active_sessions = session.exec(
-        select(LibraryImportSession)
-        .where(LibraryImportSession.root_path != "__INTERNAL_LIBRARY__")
-        .order_by(LibraryImportSession.created_at.desc())
-    ).all()
+    from app.internal.media_management.config import media_management_config
+
+    lib_root = media_management_config.get_library_path(session)
+    active_session = None
+    items = []
+    books_map = {}
+
+    if lib_root:
+        # Find an existing session for the library path
+        active_session = session.exec(
+            select(LibraryImportSession)
+            .where(LibraryImportSession.root_path == lib_root)
+            .order_by(LibraryImportSession.created_at.desc())
+        ).first()
+
+        if not active_session:
+            # Auto-create a scan session
+            active_session = LibraryImportSession(
+                root_path=lib_root, status=ImportSessionStatus.scanning
+            )
+            session.add(active_session)
+            session.commit()
+            session.refresh(active_session)
+            background_tasks.add_task(run_scanner_task, active_session.id)
+        elif active_session.status in (
+            ImportSessionStatus.review_ready,
+            ImportSessionStatus.completed,
+        ):
+            # Load existing results
+            items = session.exec(
+                select(LibraryImportItem).where(
+                    LibraryImportItem.session_id == active_session.id
+                )
+            ).all()
+            asins = {i.match_asin for i in items if i.match_asin}
+            if asins:
+                books = session.exec(
+                    select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+                ).all()
+                books_map = {b.asin: b for b in books}
+        elif active_session.status == ImportSessionStatus.scanning:
+            # Scan in progress, items may already exist
+            items = session.exec(
+                select(LibraryImportItem).where(
+                    LibraryImportItem.session_id == active_session.id
+                )
+            ).all()
+            asins = {i.match_asin for i in items if i.match_asin}
+            if asins:
+                books = session.exec(
+                    select(Audiobook).where(Audiobook.asin.in_(list(asins)))
+                ).all()
+                books_map = {b.asin: b for b in books}
+    else:
+        # No library path configured — show recent sessions instead
+        active_session = None
 
     return template_response(
         "library/import.html",
         request,
         user,
-        {"sessions": active_sessions, "view": get_import_view(request)},
+        {
+            "session": active_session,
+            "items": items,
+            "books_map": books_map,
+            "view": get_import_view(request),
+            "lib_root": lib_root,
+        },
     )
 
 
@@ -874,7 +932,13 @@ async def start_scan(
         "library/import.html",
         request,
         user,
-        {"session": new_session, "view": get_import_view(request)},
+        {
+            "session": new_session,
+            "items": [],
+            "books_map": {},
+            "view": get_import_view(request),
+            "lib_root": path,
+        },
         block_name="session_status",
     )
 
